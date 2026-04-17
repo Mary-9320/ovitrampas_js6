@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Centro de Inteligencia Vectorial - CENAPRECE</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- FontAwesome para los íconos -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- React & ReactDOM (Versiones fijas) -->
+    <script crossorigin src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+    
+    <!-- Dependencias Clave -->
+    <script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-is@18.2.0/umd/react-is.production.min.js"></script>
+    
+    <!-- html2canvas para descargar como imagen -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    
+    <!-- LEAFLET (Mapas Reales) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Recharts -->
+    <script src="https://unpkg.com/recharts@2.1.9/umd/Recharts.js"></script>
+
+    <style>
+        body { margin: 0; padding: 0; background-color: #020617; color: #e2e8f0; overflow: hidden; }
+        
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in { animation: fadeIn 0.5s ease-out forwards; }
+        
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        .leaflet-popup-content-wrapper { background-color: #0f172a; color: #e2e8f0; border: 1px solid #334155; border-radius: 0.75rem; }
+        .leaflet-popup-tip { background-color: #0f172a; border-bottom: 1px solid #334155; border-right: 1px solid #334155; }
+        .leaflet-container { background: #020617; outline: 0; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef } = React;
+        const { ScatterChart, Scatter, ZAxis, XAxis, YAxis, Tooltip: RechartsTooltip, ResponsiveContainer, Cell, LineChart, Line, AreaChart, Area, CartesianGrid, Legend } = window.Recharts;
+
+        // --- COMPONENTE DEL MAPA REAL (LEAFLET) ---
+        function MapaInteractivo({ data, onMarkerClick }) {
+            const mapRef = useRef(null);
+            const mapInstance = useRef(null);
+
+            useEffect(() => {
+                if (!mapInstance.current && mapRef.current) {
+                    mapInstance.current = L.map(mapRef.current, {
+                        zoomControl: true,
+                        attributionControl: false 
+                    }).setView([25.3, -100.0], 12);
+
+                    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                        subdomains: 'abcd',
+                        maxZoom: 19,
+                        crossOrigin: true 
+                    }).addTo(mapInstance.current);
+                }
+
+                if (mapInstance.current) {
+                    mapInstance.current.eachLayer((layer) => {
+                        if (layer instanceof L.CircleMarker) {
+                            mapInstance.current.removeLayer(layer);
+                        }
+                    });
+                }
+
+                if (data && data.length > 0 && mapInstance.current) {
+                    const bounds = L.latLngBounds();
+                    
+                    data.forEach(punto => {
+                        if (punto.y && punto.x) {
+                            const color = punto.sectorRiesgo === 'Crítico' ? '#f43f5e' : 
+                                          punto.sectorRiesgo === 'Alto' ? '#fb923c' :    
+                                          '#0891b2';                                     
+
+                            const marker = L.circleMarker([punto.y, punto.x], {
+                                radius: 6,
+                                fillColor: color,
+                                color: color,
+                                weight: 1,
+                                opacity: 1,
+                                fillOpacity: 0.8
+                            }).addTo(mapInstance.current);
+
+                            const popupContent = `
+                                <div style="font-family: sans-serif; min-width: 150px;">
+                                    <p style="font-weight: bold; color: #22d3ee; margin: 0 0 4px 0; border-bottom: 1px solid #334155; padding-bottom: 4px;">${punto.id}</p>
+                                    <p style="font-size: 11px; margin: 0 0 2px 0;">S: ${punto.sector} | M: ${punto.manzana}</p>
+                                    <p style="font-size: 11px; margin: 0 0 4px 0; color: ${color}; font-weight: bold;">Riesgo Sector: ${punto.sectorRiesgo}</p>
+                                    <p style="font-size: 12px; margin: 0;">Huevos Trampa: <b>${punto.huevos}</b></p>
+                                </div>
+                            `;
+                            marker.bindPopup(popupContent);
+                            marker.on('click', () => { if(onMarkerClick) onMarkerClick(punto); });
+                            bounds.extend([punto.y, punto.x]);
+                        }
+                    });
+                    
+                    if (bounds.isValid()) {
+                        mapInstance.current.fitBounds(bounds, { padding: [30, 30] });
+                    }
+                }
+            }, [data]);
+
+            return <div ref={mapRef} style={{ width: '100%', height: '100%', borderRadius: '0.75rem', zIndex: 1 }}></div>;
+        }
+
+        // --- SISTEMA PRINCIPAL ---
+        function CentroInteligenciaVectorial() {
+            const [activeTab, setActiveTab] = useState('upload'); 
+            
+            const [geoCatalog, setGeoCatalog] = useState({}); 
+            const [isGeoLoaded, setIsGeoLoaded] = useState(false);
+            const [isProcessing, setIsProcessing] = useState(false);
+            
+            // HISTÓRICO DE SEMANAS
+            const [historialSemanas, setHistorialSemanas] = useState({});
+            const [semanaActual, setSemanaActual] = useState(null);
+
+            const [selectedHotspot, setSelectedHotspot] = useState(null);
+            const [mapViewMode, setMapViewMode] = useState('puntos'); 
+            const [trendSector, setTrendSector] = useState('');
+
+            const mapContainerRef = useRef(null);
+
+            // VARIABLES DE LA SEMANA ACTUAL
+            const dataSemanaActual = semanaActual ? historialSemanas[semanaActual] : null;
+            const gridData = dataSemanaActual?.gridData || [];
+            
+            // STATS CON NOMENCLATURA OFICIAL CENAPRECE
+            const statsGlobales = dataSemanaActual?.statsGlobales || {
+                ovitrampasRevisadas: 0, ovitrampasPositivas: 0, totalHuevos: 0, manzanasRevisadas: 0, manzanasPositivas: 0, semanaEpidemiologica: 'S/N'
+            };
+            const datosPorSector = dataSemanaActual?.datosPorSector || [];
+            const isWeeklyLoaded = Object.keys(historialSemanas).length > 0;
+            
+            // LECTURA DE PADRÓN GEOGRÁFICO
+            const handleGeoUpload = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    const rows = evt.target.result.split('\n');
+                    const headers = rows[0].split(',').map(h => h.trim().toLowerCase());
+                    const xIdx = headers.findIndex(h => h === 'pocision_x' || h === 'posicion_x');
+                    const yIdx = headers.findIndex(h => h === 'pocision_y' || h === 'posicion_y');
+                    const oviIdx = headers.findIndex(h => h === 'ovitrampa');
+                    const catalog = {};
+                    for(let i = 1; i < rows.length; i++) {
+                        const cols = rows[i].split(',');
+                        if(cols.length > Math.max(xIdx, yIdx, oviIdx)) {
+                            const id = cols[oviIdx]?.trim();
+                            const x = parseFloat(cols[xIdx]);
+                            const y = parseFloat(cols[yIdx]);
+                            if(id && !isNaN(x) && !isNaN(y)) catalog[id] = { x, y };
+                        }
+                    }
+                    setGeoCatalog(catalog);
+                    setIsGeoLoaded(true);
+                };
+                reader.readAsText(file);
+            };
+
+            // LECTURA DE DATOS MENSUALES/SEMANALES
+            const handleWeeklyUpload = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                setIsProcessing(true);
+
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    const rows = evt.target.result.split('\n');
+                    if(rows.length <= 1) { setIsProcessing(false); return; }
+                    const headers = rows[0].split(',').map(h => h.trim().toLowerCase());
+                    
+                    const oviIdx = headers.findIndex(h => h === 'ovitrampa');
+                    const huevosIdx = headers.findIndex(h => h === 'huevecillos');
+                    const sectorIdx = headers.findIndex(h => h === 'sector');
+                    const mznIdx = headers.findIndex(h => h === 'manzana');
+                    const muniIdx = headers.findIndex(h => h === 'municipio');
+                    const semIdx = headers.findIndex(h => h === 'semana epidemiologica' || h === 'semana');
+
+                    const weeksData = {};
+
+                    for(let i = 1; i < rows.length; i++) {
+                        const cols = rows[i].split(',');
+                        if(cols.length > Math.max(oviIdx, huevosIdx)) {
+                            const id = cols[oviIdx]?.trim();
+                            const huevosStr = cols[huevosIdx]?.trim();
+                            if(!id || huevosStr === undefined || huevosStr === '') continue;
+                            const huevos = parseInt(huevosStr, 10);
+                            if(isNaN(huevos)) continue;
+                            
+                            const semana = (semIdx !== -1 && cols[semIdx]) ? cols[semIdx].trim() : 'S/N';
+
+                            if (!weeksData[semana]) {
+                                weeksData[semana] = {
+                                    mergedData: [], totalHuevos: 0, positivas: 0, revisadas: 0, manzanasTracker: {}, sectoresTracker: {}
+                                };
+                            }
+
+                            const weekObj = weeksData[semana];
+                            
+                            // Nomenclatura oficial: Ovitrampas Revisadas
+                            weekObj.revisadas++;
+                            if (huevos > 0) weekObj.positivas++;
+                            weekObj.totalHuevos += huevos;
+
+                            const sector = cols[sectorIdx]?.trim() || 'S/N';
+                            const manzana = cols[mznIdx]?.trim() || 'S/N';
+                            const muni = cols[muniIdx]?.trim() || 'Sector';
+                            
+                            const mznKey = `${sector}-${manzana}`;
+                            if (!weekObj.manzanasTracker[mznKey]) weekObj.manzanasTracker[mznKey] = { huevos: 0, positivas: 0 };
+                            weekObj.manzanasTracker[mznKey].huevos += huevos;
+                            if (huevos > 0) weekObj.manzanasTracker[mznKey].positivas++;
+
+                            const secKey = `${muni} - Sector ${sector}`;
+                            if (!weekObj.sectoresTracker[secKey]) weekObj.sectoresTracker[secKey] = { nombre: secKey, municipio: muni, sector: sector, huevos: 0, positivas: 0, revisadas: 0, manzanasSet: new Set() };
+                            weekObj.sectoresTracker[secKey].revisadas++;
+                            weekObj.sectoresTracker[secKey].huevos += huevos;
+                            if (huevos > 0) weekObj.sectoresTracker[secKey].positivas++;
+                            weekObj.sectoresTracker[secKey].manzanasSet.add(manzana);
+
+                            const geo = geoCatalog[id];
+                            if (geo) {
+                                weekObj.mergedData.push({ id, municipio: muni, sector, manzana, x: geo.x, y: geo.y, huevos });
+                            }
+                        }
+                    }
+
+                    const newHistorial = { ...historialSemanas };
+                    let maxSemana = semanaActual || 0;
+
+                    Object.keys(weeksData).forEach(semana => {
+                        const weekObj = weeksData[semana];
+                        // Nomenclatura oficial: Manzanas Revisadas
+                        const manzanasRevisadas = Object.keys(weekObj.manzanasTracker).length;
+                        const manzanasPositivas = Object.values(weekObj.manzanasTracker).filter(m => m.positivas > 0).length;
+
+                        const datosSectorArray = Object.values(weekObj.sectoresTracker).map(s => {
+                            const pho = s.positivas > 0 ? (s.huevos / s.positivas).toFixed(1) : 0;
+                            const phm = s.manzanasSet.size > 0 ? (s.huevos / s.manzanasSet.size).toFixed(1) : 0; 
+                            const riesgo = parseFloat(phm) > 50 ? 'Crítico' : parseFloat(phm) > 20 ? 'Alto' : 'Bajo';
+                            return { ...s, pho: parseFloat(pho), phm: parseFloat(phm), riesgoNivel: riesgo, manzanasUnicas: s.manzanasSet.size };
+                        }).sort((a, b) => b.phm - a.phm);
+
+                        const calcPHMGlobal = manzanasRevisadas > 0 ? (weekObj.totalHuevos / manzanasRevisadas).toFixed(1) : 0;
+
+                        newHistorial[semana] = {
+                            gridData: weekObj.mergedData,
+                            statsGlobales: {
+                                ovitrampasRevisadas: weekObj.revisadas,
+                                ovitrampasPositivas: weekObj.positivas,
+                                totalHuevos: weekObj.totalHuevos,
+                                manzanasRevisadas: manzanasRevisadas,
+                                manzanasPositivas: manzanasPositivas,
+                                semanaEpidemiologica: semana,
+                                phmGlobal: parseFloat(calcPHMGlobal)
+                            },
+                            datosPorSector: datosSectorArray
+                        };
+
+                        if (semana !== 'S/N' && parseInt(semana) > parseInt(maxSemana || 0)) {
+                            maxSemana = semana;
+                        }
+                    });
+
+                    setTimeout(() => {
+                        setHistorialSemanas(newHistorial);
+                        if (maxSemana) setSemanaActual(maxSemana);
+                        setIsProcessing(false);
+                        if (activeTab === 'upload') setActiveTab('tactica'); 
+                    }, 1000);
+                };
+                reader.readAsText(file);
+                e.target.value = null; 
+            };
+
+            // CÁLCULOS INDICADORES GLOBALES DE LA SEMANA ACTUAL (Acorde a Manual CENAPRECE)
+            const calcIPO = statsGlobales.ovitrampasRevisadas > 0 ? ((statsGlobales.ovitrampasPositivas / statsGlobales.ovitrampasRevisadas) * 100).toFixed(1) : '0.0';
+            const calcPHO = statsGlobales.ovitrampasPositivas > 0 ? (statsGlobales.totalHuevos / statsGlobales.ovitrampasPositivas).toFixed(1) : '0.0';
+            const calcPHM = statsGlobales.manzanasRevisadas > 0 ? (statsGlobales.totalHuevos / statsGlobales.manzanasRevisadas).toFixed(1) : '0.0';
+            const calcPHMP = statsGlobales.manzanasPositivas > 0 ? (statsGlobales.totalHuevos / statsGlobales.manzanasPositivas).toFixed(1) : '0.0';
+            const calcMP = statsGlobales.manzanasRevisadas > 0 ? ((statsGlobales.manzanasPositivas / statsGlobales.manzanasRevisadas) * 100).toFixed(1) : '0.0';
+
+            const mapDataWithSectorRisk = useMemo(() => {
+                return gridData.map(punto => {
+                    const sectorName = `${punto.municipio} - Sector ${punto.sector}`;
+                    const sectorInfo = datosPorSector.find(s => s.nombre === sectorName);
+                    return { ...punto, sectorPhm: sectorInfo ? sectorInfo.phm : 0, sectorRiesgo: sectorInfo ? sectorInfo.riesgoNivel : 'Bajo' };
+                });
+            }, [gridData, datosPorSector]);
+
+            const generarAnalisisDescriptivo = () => {
+                const ipo = parseFloat(calcIPO); const pho = parseFloat(calcPHO); const phm = parseFloat(calcPHM); const mp = parseFloat(calcMP);
+
+                let txtTerritorial = "";
+                if (mp > 20 && ipo > 15) txtTerritorial = "Ambos porcentajes (%MP e IPO) son altos. Esto confirma que la infestación no es un problema aislado en un solo rincón, sino que el vector ya se ha dispersado por múltiples cuadras y ha logrado invadir una gran cantidad de viviendas en la zona evaluada.";
+                else if (mp > 20) txtTerritorial = "El Porcentaje de Manzanas Positivas (%MP) indica una dispersión amplia a lo largo de las cuadras, aunque la invasión al interior de las viviendas (IPO) se mantiene moderada o focalizada.";
+                else if (ipo > 15) txtTerritorial = "Aunque el vector no ha abarcado un número extenso de manzanas, las viviendas dentro de los polígonos afectados tienen una alta tasa de positividad (IPO).";
+                else txtTerritorial = "Tanto el IPO como el %MP se encuentran en niveles controlados. La infestación se mantiene en áreas focalizadas sin una dispersión habitacional generalizada.";
+
+                let txtDensidad = "";
+                if (pho > 40 && ipo > 15) txtDensidad = "Se detecta un PHO alto concurrente con un IPO elevado. Esto significa que la plaga no solo está extendida geográficamente, sino que en cada punto infestado existe una concentración masiva de mosquitos hembra reproduciéndose.";
+                else if (pho > 40) txtDensidad = "A pesar de una menor dispersión territorial, los focos que dieron positivo registran un PHO alarmante, indicando una concentración masiva de oviposición en sitios específicos (alta productividad focal).";
+                else txtDensidad = "El Promedio de Huevos por Ovitrampa (PHO) muestra una tasa de oviposición de leve a moderada en los puntos positivos.";
+
+                let txtRiesgo = ""; let riesgoNivelClase = "text-cyan-400"; let riesgoNivelTexto = "BAJO / CONTROLADO";
+                if (phm >= 50) {
+                    txtRiesgo = "El PHM se encuentra en niveles de ALERTA MÁXIMA. Se recomienda implementar urgente un Control de Barrido e Intervención Integral. Correlacionar inmediatamente con casos probables de dengue para justificar control químico.";
+                    riesgoNivelClase = "text-rose-500 font-black"; riesgoNivelTexto = "CRÍTICO";
+                } else if (phm >= 20) {
+                    txtRiesgo = "El PHM evidencia un Riesgo de Transmisión ACTIVO. Se requiere priorizar Operativos de Barrido en los sectores marcados en el mapa antes de un brote epidémico.";
+                    riesgoNivelClase = "text-orange-400 font-bold"; riesgoNivelTexto = "ALTO";
+                } else {
+                    txtRiesgo = "El PHM sugiere un escenario de baja probabilidad para el sostenimiento de una cadena de transmisión. Mantener Tratamientos Focalizados en donde se hayan detectado ovitrampas positivas.";
+                    riesgoNivelClase = "text-cyan-400 font-bold"; riesgoNivelTexto = "BAJO";
+                }
+                return { txtTerritorial, txtDensidad, txtRiesgo, riesgoNivelClase, riesgoNivelTexto };
+            };
+            const analisisTextos = generarAnalisisDescriptivo();
+
+            // PREPARACIÓN DE DATOS PARA PESTAÑA "TENDENCIAS"
+            const allSectorsList = useMemo(() => {
+                const set = new Set();
+                Object.values(historialSemanas).forEach(week => week.datosPorSector.forEach(s => set.add(s.nombre)));
+                return Array.from(set).sort();
+            }, [historialSemanas]);
+
+            useEffect(() => {
+                if(allSectorsList.length > 0 && !trendSector) setTrendSector(allSectorsList[0]);
+            }, [allSectorsList]);
+
+            const chartTrendData = useMemo(() => {
+                const semanasOrdenadas = Object.keys(historialSemanas).filter(k => k !== 'S/N').sort((a,b) => parseInt(a) - parseInt(b));
+                return semanasOrdenadas.map(sem => {
+                    const weekData = historialSemanas[sem];
+                    const sectorData = weekData.datosPorSector.find(s => s.nombre === trendSector);
+                    return {
+                        semana: `SE ${sem}`,
+                        PHM_Global: weekData.statsGlobales.phmGlobal,
+                        PHM_Sector: sectorData ? sectorData.phm : 0
+                    };
+                });
+            }, [historialSemanas, trendSector]);
+
+            const descargarIndicadoresCSV = () => {
+                let csvContent = "data:text/csv;charset=utf-8,";
+                csvContent += "Semana,Indicador,Valor,Formula\n";
+                csvContent += `${statsGlobales.semanaEpidemiologica},% de Ovitrampas Positivas (IPO),${calcIPO}%,(Ovitrampas Positivas / Ovitrampas Revisadas) X 100\n`;
+                csvContent += `${statsGlobales.semanaEpidemiologica},Promedio de Huevos por Ovitrampa (PHO),${calcPHO},(Total de Huevos / Ovitrampas Positivas)\n`;
+                csvContent += `${statsGlobales.semanaEpidemiologica},Promedio de Huevos por Manzana (PHM),${calcPHM},(Total de Huevos / Manzanas Revisadas)\n`;
+                csvContent += `${statsGlobales.semanaEpidemiologica},Promedio de Huevos por Mzn Positiva (PHMP),${calcPHMP},(Total de Huevos / Manzanas Positivas)\n`;
+                csvContent += `${statsGlobales.semanaEpidemiologica},% de Manzanas Positivas (%MP),${calcMP}%,(Manzanas Positivas / Manzanas Revisadas) X 100\n\n`;
+                csvContent += "Municipio,Sector,Ovitrampas Revisadas,Manzanas Revisadas,Positivas,Total Huevos,PHO Sector,PHM Sector,Nivel Riesgo (Basado en PHM)\n";
+                datosPorSector.forEach(s => {
+                    csvContent += `${s.municipio},${s.sector},${s.revisadas},${s.manzanasUnicas},${s.positivas},${s.huevos},${s.pho},${s.phm},${s.riesgoNivel}\n`;
+                });
+
+                const encodedUri = encodeURI(csvContent);
+                const link = document.createElement("a");
+                link.setAttribute("href", encodedUri);
+                link.setAttribute("download", `Indicadores_Vectores_SE${statsGlobales.semanaEpidemiologica}.csv`);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            };
+
+            const descargarMapaImagen = async () => {
+                if (mapContainerRef.current) {
+                    try {
+                        const canvas = await html2canvas(mapContainerRef.current, {
+                            useCORS: true, allowTaint: true, backgroundColor: '#020617', scale: 2 
+                        });
+                        const link = document.createElement("a");
+                        link.href = canvas.toDataURL("image/png");
+                        link.download = `Mapa_Riesgo_Georreferenciado_SE${statsGlobales.semanaEpidemiologica}.png`;
+                        link.click();
+                    } catch (err) { alert("Error al capturar el mapa. Intenta de nuevo."); }
+                }
+            };
+
+            const descargarAccionTactica = (tipoAccion, nivelesRiesgo, filename, soloPositivas) => {
+                let puntosAfectados = mapDataWithSectorRisk.filter(p => nivelesRiesgo.includes(p.sectorRiesgo));
+
+                if (soloPositivas) {
+                    puntosAfectados = puntosAfectados.filter(p => p.huevos > 0);
+                }
+
+                if (puntosAfectados.length === 0) {
+                    const motivo = soloPositivas ? 'positivas' : 'para el nivel de riesgo seleccionado';
+                    alert(`No se detectaron manzanas ${motivo} en la SE ${statsGlobales.semanaEpidemiologica} para ejecutar esta acción táctica.`);
+                    return;
+                }
+
+                let csvContent = "data:text/csv;charset=utf-8,";
+                csvContent += `ORDEN DE TRABAJO: ${tipoAccion} - SE ${statsGlobales.semanaEpidemiologica}\n\n`;
+                csvContent += "Ovitrampa,Municipio,Sector,Manzana,Latitud,Longitud,Huevos,Nivel Riesgo Sector\n";
+
+                puntosAfectados.forEach(p => {
+                    csvContent += `${p.id},${p.municipio},${p.sector},${p.manzana},${p.y},${p.x},${p.huevos},${p.sectorRiesgo}\n`;
+                });
+
+                const encodedUri = encodeURI(csvContent);
+                const link = document.createElement("a");
+                link.setAttribute("href", encodedUri);
+                link.setAttribute("download", `${filename}_SE${statsGlobales.semanaEpidemiologica}.csv`);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            };
+
+            return (
+                <div className="h-screen w-full bg-slate-950 text-slate-200 font-sans flex flex-col selection:bg-cyan-500 selection:text-white overflow-hidden">
+                
+                {/* --- BARRA DE NAVEGACIÓN SUPERIOR --- */}
+                <nav className="w-full bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 py-3 z-50 shrink-0 shadow-lg">
+                    <div className="flex items-center gap-3 shrink-0 mr-6">
+                        <div className="p-2 bg-cyan-500/10 rounded-lg border border-cyan-500/20">
+                            <i className="fa-solid fa-bug text-cyan-400 text-xl"></i>
+                        </div>
+                        <div>
+                            <h1 className="text-lg font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 tracking-wider whitespace-nowrap">S.I.G.E. VECTORES</h1>
+                            <p className="text-[10px] text-slate-500 uppercase font-bold hidden sm:block whitespace-nowrap">Inteligencia Epidemiológica</p>
+                        </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-2 overflow-x-auto w-full no-scrollbar pb-1">
+                        <NavButton icon={<i className="fa-solid fa-cloud-arrow-up"></i>} label="Base Datos" active={activeTab === 'upload'} onClick={() => setActiveTab('upload')} />
+                        <NavButton icon={<i className="fa-solid fa-shield-halved"></i>} label="Táctica" active={activeTab === 'tactica'} onClick={() => setActiveTab('tactica')} disabled={!isWeeklyLoaded} />
+                        <NavButton icon={<i className="fa-solid fa-chart-line"></i>} label="Tendencias" active={activeTab === 'tendencias'} onClick={() => setActiveTab('tendencias')} disabled={!isWeeklyLoaded} />
+                        <NavButton icon={<i className="fa-solid fa-microscope"></i>} label="Análisis" active={activeTab === 'analisis'} onClick={() => setActiveTab('analisis')} disabled={!isWeeklyLoaded} />
+                        <NavButton icon={<i className="fa-solid fa-calculator"></i>} label="Métricas" active={activeTab === 'metricas'} onClick={() => setActiveTab('metricas')} disabled={!isWeeklyLoaded} />
+                        <NavButton icon={<i className="fa-solid fa-earth-americas"></i>} label="Geomapa" active={activeTab === 'radar'} onClick={() => setActiveTab('radar')} disabled={!isWeeklyLoaded} />
+                    </div>
+                </nav>
+
+                <main className="flex-1 overflow-y-auto p-4 md:p-6 relative z-0">
+                    <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px] pointer-events-none"></div>
+
+                    <header className="mb-6 relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4 max-w-7xl mx-auto">
+                        <div className="flex flex-wrap items-center gap-3">
+                            <div className="text-slate-400 text-sm font-medium flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg shadow-sm whitespace-nowrap">
+                                <i className="fa-solid fa-layer-group text-cyan-400"></i> {Object.keys(historialSemanas).filter(k=>k!=='S/N').length} Semanas
+                            </div>
+                            
+                            {isWeeklyLoaded && (
+                                <div className="flex items-center gap-2 bg-indigo-900/30 border border-indigo-500/30 px-3 py-1.5 rounded-lg">
+                                    <span className="text-xs text-indigo-300 font-bold uppercase whitespace-nowrap">Analizando:</span>
+                                    <select 
+                                        className="bg-transparent text-white font-bold outline-none cursor-pointer"
+                                        value={semanaActual}
+                                        onChange={(e) => setSemanaActual(e.target.value)}
+                                    >
+                                        {Object.keys(historialSemanas).filter(k=>k!=='S/N').sort((a,b) => parseInt(b) - parseInt(a)).map(sem => (
+                                            <option key={sem} value={sem} className="bg-slate-900">Semana {sem}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+                        </div>
+
+                        {isWeeklyLoaded && (
+                            <div className="bg-slate-900 border border-slate-800 rounded-lg px-4 py-2 flex items-center gap-4 text-sm shadow-md shrink-0 w-full md:w-auto overflow-x-auto no-scrollbar">
+                                <div className="whitespace-nowrap"><span className="text-slate-500 block text-xs">Universo</span><span className="text-cyan-400 font-bold">{statsGlobales.ovitrampasRevisadas} Revisadas</span></div>
+                                <div className="w-px h-6 bg-slate-800 shrink-0"></div>
+                                <div className="whitespace-nowrap"><span className="text-slate-500 block text-xs">Tot. Huevecillos</span><span className="text-orange-400 font-bold">{statsGlobales.totalHuevos.toLocaleString()}</span></div>
+                            </div>
+                        )}
+                    </header>
+
+                    <div className="relative z-10 max-w-7xl mx-auto pb-10">
+                    
+                    {/* VISTA 1: SUBIDA DE DATOS Y MULTICARGA */}
+                    {activeTab === 'upload' && (
+                        <div className="max-w-4xl mx-auto mt-4 animate-fade-in">
+                        <div className="bg-slate-900 p-8 rounded-3xl border border-slate-800 shadow-xl relative overflow-hidden">
+                            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-32 bg-cyan-500/10 blur-3xl rounded-full pointer-events-none"></div>
+                            
+                            <div className="text-center mb-8 relative z-10">
+                            <h2 className="text-2xl md:text-3xl font-bold text-white mb-2">Motor de Ingesta Vectorial</h2>
+                            <p className="text-slate-400 text-sm md:text-base">Sube archivos mensuales concentrados para evaluar tendencias epidemiológicas.</p>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-10">
+                            <div className={`border-2 border-dashed rounded-2xl p-6 text-center transition-all duration-300 relative group
+                                ${isGeoLoaded ? 'border-emerald-500 bg-emerald-950/20' : 'border-slate-700 hover:border-cyan-400/50 hover:bg-slate-800/50'}`}>
+                                {isGeoLoaded ? (
+                                <div className="flex flex-col items-center justify-center h-full text-emerald-400">
+                                    <i className="fa-solid fa-circle-check mb-3 text-[48px]"></i>
+                                    <h3 className="font-bold text-lg">Padrón Geográfico Listo</h3>
+                                    <p className="text-xs text-emerald-500/70">{Object.keys(geoCatalog).length} coordenadas en memoria</p>
+                                </div>
+                                ) : (
+                                <>
+                                    <input type="file" accept=".csv" onChange={handleGeoUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-50" title="Subir Coordenadas Fijas" />
+                                    <div className="flex flex-col items-center text-slate-400 pointer-events-none">
+                                    <div className="p-3 bg-slate-800 rounded-full mb-3 group-hover:bg-cyan-900/50 transition-all text-cyan-400"><i className="fa-solid fa-location-dot text-[32px]"></i></div>
+                                    <h3 className="text-lg font-bold text-white">Paso 1: Padrón de Ovitrampas</h3>
+                                    <p className="text-xs mt-2 text-slate-500 px-4">Sube el archivo de Coordenadas Fijas (Pocision_X, Pocision_Y).</p>
+                                    </div>
+                                </>
+                                )}
+                            </div>
+
+                            <div className={`border-2 border-dashed rounded-2xl p-6 text-center transition-all duration-300 relative group
+                                ${!isGeoLoaded ? 'opacity-50 grayscale pointer-events-none border-slate-800' : isProcessing ? 'border-cyan-500 bg-cyan-950/30' : 'border-cyan-700 hover:border-cyan-400 hover:bg-slate-800/50 cursor-pointer'}`}>
+                                {isProcessing ? (
+                                <div className="flex flex-col items-center justify-center h-full text-cyan-400 animate-pulse">
+                                    <div className="w-10 h-10 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mb-3"></div>
+                                    <p className="font-bold">Procesando Concentrado...</p>
+                                </div>
+                                ) : (
+                                <>
+                                    <input type="file" accept=".csv" onChange={handleWeeklyUpload} disabled={!isGeoLoaded} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-50" title="Subir Lecturas" />
+                                    <div className="flex flex-col items-center pointer-events-none">
+                                        <div className="p-3 bg-slate-800 rounded-full mb-3 group-hover:bg-cyan-900/50 transition-all text-cyan-400"><i className="fa-solid fa-file-csv text-[32px]"></i></div>
+                                        <h3 className="text-lg font-bold text-white">Paso 2: Subir Lecturas</h3>
+                                        <p className="text-xs mt-2 text-slate-400 px-4 mb-2">Sube archivos con 1 o varias semanas juntas. La IA las separará automáticamente.</p>
+                                        {isWeeklyLoaded && <span className="bg-indigo-600/30 text-indigo-400 text-[10px] font-black uppercase px-3 py-1 rounded border border-indigo-500/50">+ Subir más datos</span>}
+                                    </div>
+                                </>
+                                )}
+                            </div>
+                            </div>
+                        </div>
+                        </div>
+                    )}
+
+                    {/* VISTA 2: PANEL TÁCTICO OFICIAL (FOCALIZADO, BARRIDO, INTEGRAL) */}
+                    {activeTab === 'tactica' && (
+                        <div className="space-y-6 animate-fade-in pb-8">
+                        <div className="bg-gradient-to-r from-rose-900/50 to-slate-900 p-6 rounded-2xl border border-rose-500/30 flex flex-col md:flex-row items-start md:items-center gap-6">
+                            <div className="p-4 bg-rose-500/20 rounded-full shrink-0"><i className="fa-solid fa-shield-virus text-rose-400 animate-pulse text-[40px]"></i></div>
+                            <div>
+                            <h2 className="text-xl md:text-2xl font-bold text-white mb-1">Centro de Mando y Despliegue de Vectores</h2>
+                            <p className="text-rose-200 text-xs md:text-sm">Las rutas se generan basándose en el nivel de PHM de la SE {statsGlobales.semanaEpidemiologica}, siguiendo los lineamientos de control (Focalizado, Barrido e Integral). Haz clic en los botones para descargar las coordenadas GPS.</p>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                            <TacticalCard 
+                                title="Tratamiento Focalizado" 
+                                priority="Sectores de Riesgo Bajo" 
+                                target="Exclusivo en Manzanas Positivas" 
+                                icon={<i className="fa-solid fa-bullseye text-[28px]"></i>} 
+                                colorTheme="cyan" 
+                                action="Ruta Focalizada (CSV)" 
+                                onClick={() => descargarAccionTactica('TRATAMIENTO FOCALIZADO', ['Bajo'], 'Rutas_Focalizadas', true)} 
+                            />
+                            <TacticalCard 
+                                title="Operativo de Barrido" 
+                                priority="Riesgo Alto (Dispersión)" 
+                                target="100% de Manzanas del Sector" 
+                                icon={<i className="fa-solid fa-route text-[28px]"></i>} 
+                                colorTheme="orange" 
+                                action="Rutas de Barrido (CSV)" 
+                                onClick={() => descargarAccionTactica('OPERATIVO DE BARRIDO', ['Alto'], 'Rutas_Barrido', false)} 
+                            />
+                            <TacticalCard 
+                                title="Intervención Integral" 
+                                priority="Riesgo Crítico (Brote inminente)" 
+                                target="Cobertura Total (Físico/Químico)" 
+                                icon={<i className="fa-solid fa-users-viewfinder text-[28px]"></i>} 
+                                colorTheme="rose" 
+                                action="Despliegue Integral (CSV)" 
+                                onClick={() => descargarAccionTactica('INTERVENCION INTEGRAL', ['Crítico'], 'Despliegue_Integral', false)} 
+                            />
+                        </div>
+                        </div>
+                    )}
+
+                    {/* VISTA 3: TENDENCIAS (GRÁFICA PHM GLOBAL Y COMPARATIVA) */}
+                    {activeTab === 'tendencias' && (
+                        <div className="space-y-6 animate-fade-in pb-8">
+                            
+                            {/* GRÁFICA 1: PHM GLOBAL DE TODAS LAS OVITRAMPAS */}
+                            <div className="bg-slate-900 rounded-2xl border border-slate-800 p-6 shadow-lg">
+                                <div className="flex items-center gap-3 mb-6">
+                                    <div className="p-2 bg-cyan-500/20 rounded-lg text-cyan-400"><i className="fa-solid fa-earth-americas text-xl"></i></div>
+                                    <div>
+                                        <h3 className="text-xl font-bold text-white">Tendencia del PHM Global</h3>
+                                        <p className="text-sm text-slate-400">Riesgo promedio de la ciudad entera (Universo Total: {statsGlobales.ovitrampasRevisadas} Ovitrampas Revisadas).</p>
+                                    </div>
+                                </div>
+
+                                {Object.keys(historialSemanas).filter(k=>k!=='S/N').length < 2 ? (
+                                    <div className="h-[300px] flex flex-col items-center justify-center text-slate-500 bg-slate-950/50 rounded-xl border border-slate-800 border-dashed">
+                                        <i className="fa-solid fa-chart-area text-[32px] mb-3 opacity-50"></i>
+                                        <p className="text-center px-4">Se requieren al menos 2 semanas de datos para mostrar la curva global.</p>
+                                    </div>
+                                ) : (
+                                    <div className="h-[300px] md:h-[400px] w-full">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <AreaChart data={chartTrendData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
+                                                <defs>
+                                                    <linearGradient id="colorPHMGlobal" x1="0" y1="0" x2="0" y2="1">
+                                                        <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.8}/>
+                                                        <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.1}/>
+                                                    </linearGradient>
+                                                </defs>
+                                                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                                                <XAxis dataKey="semana" stroke="#64748b" tick={{fill: '#94a3b8', fontSize: 12}} axisLine={false} tickLine={false} />
+                                                <YAxis stroke="#64748b" tick={{fill: '#94a3b8', fontSize: 12}} axisLine={false} tickLine={false} />
+                                                <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f8fafc', borderRadius: '0.75rem' }} />
+                                                
+                                                <Area 
+                                                    type="monotone" 
+                                                    dataKey="PHM_Global" 
+                                                    name="PHM Global Ciudad" 
+                                                    stroke="#06b6d4" 
+                                                    strokeWidth={4} 
+                                                    fillOpacity={1} 
+                                                    fill="url(#colorPHMGlobal)"
+                                                    activeDot={{r: 8, stroke: '#020617', strokeWidth: 2}}
+                                                />
+                                            </AreaChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* GRÁFICA 2: COMPARATIVA POR SECTOR */}
+                            <div className="bg-slate-900 rounded-2xl border border-slate-800 p-6 shadow-lg">
+                                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-2 bg-rose-500/20 rounded-lg text-rose-400"><i className="fa-solid fa-map-location-dot text-xl"></i></div>
+                                        <div>
+                                            <h3 className="text-xl font-bold text-white">Comparativa por Colonia/Sector</h3>
+                                            <p className="text-sm text-slate-400">Compara el comportamiento de una colonia vs el Promedio Global.</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-3 bg-slate-950 p-2 rounded-lg border border-slate-700 w-full md:w-auto">
+                                        <i className="fa-solid fa-filter text-slate-500 pl-3"></i>
+                                        <select className="bg-transparent text-white font-bold text-sm outline-none cursor-pointer w-full md:w-64 truncate py-1" value={trendSector} onChange={(e) => setTrendSector(e.target.value)}>
+                                            {allSectorsList.map(sec => <option key={sec} value={sec} className="bg-slate-900">{sec}</option>)}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {Object.keys(historialSemanas).filter(k=>k!=='S/N').length < 2 ? (
+                                    <div className="h-[300px] flex flex-col items-center justify-center text-slate-500 bg-slate-950/50 rounded-xl border border-slate-800 border-dashed">
+                                        <i className="fa-solid fa-chart-line text-[32px] mb-3 opacity-50"></i>
+                                        <p className="text-center px-4">Se requieren al menos 2 semanas de datos para mostrar la comparativa.</p>
+                                    </div>
+                                ) : (
+                                    <div className="h-[300px] md:h-[400px] w-full">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <LineChart data={chartTrendData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
+                                                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                                                <XAxis dataKey="semana" stroke="#64748b" tick={{fill: '#94a3b8', fontSize: 12}} axisLine={false} tickLine={false} />
+                                                <YAxis stroke="#64748b" tick={{fill: '#94a3b8', fontSize: 12}} axisLine={false} tickLine={false} />
+                                                <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f8fafc', borderRadius: '0.75rem' }} />
+                                                <Legend verticalAlign="top" height={36} wrapperStyle={{ paddingBottom: '10px' }}/>
+                                                <Line type="monotone" dataKey="PHM_Global" name="Promedio Global" stroke="#64748b" strokeWidth={2} strokeDasharray="5 5" dot={false} />
+                                                <Line type="monotone" dataKey="PHM_Sector" name={`Riesgo: ${trendSector}`} stroke="#f43f5e" strokeWidth={4} dot={{r: 6, strokeWidth: 2}} activeDot={{r: 8}} />
+                                            </LineChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* VISTA 4: ANÁLISIS DESCRIPTIVO */}
+                    {activeTab === 'analisis' && (
+                        <div className="max-w-5xl mx-auto space-y-6 animate-fade-in pb-8">
+                            <div className="bg-gradient-to-r from-indigo-900/40 to-slate-900 border border-indigo-500/30 rounded-2xl p-6 relative overflow-hidden">
+                                <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 blur-3xl rounded-full pointer-events-none"></div>
+                                <div className="flex flex-col md:flex-row justify-between items-start md:items-center relative z-10 gap-4">
+                                    <div>
+                                        <h2 className="text-xl md:text-2xl font-bold text-white mb-2 flex items-center gap-3"><i className="fa-solid fa-microscope text-indigo-400"></i> Análisis Epidemiológico</h2>
+                                        <p className="text-slate-400 text-sm">Correlación de indicadores de la <strong>SE {statsGlobales.semanaEpidemiologica}</strong>.</p>
+                                    </div>
+                                    <div className="bg-slate-950/50 px-4 py-2 rounded-xl border border-slate-800 text-center w-full md:w-auto">
+                                        <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Riesgo Global (PHM)</p>
+                                        <p className={`text-xl ${analisisTextos.riesgoNivelClase}`}>{analisisTextos.riesgoNivelTexto}</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-6">
+                                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 relative overflow-hidden group hover:border-cyan-500/30 transition-all">
+                                    <div className="flex flex-col sm:flex-row items-start gap-4">
+                                        <div className="p-4 bg-cyan-950/50 rounded-xl text-cyan-400 border border-cyan-900/50 shrink-0"><i className="fa-solid fa-map-location-dot text-2xl"></i></div>
+                                        <div>
+                                            <h3 className="text-lg font-bold text-white mb-1">1. Distribución Territorial y Habitacional</h3>
+                                            <div className="flex gap-4 mb-3">
+                                                <span className="text-xs sm:text-sm font-medium bg-slate-800 px-2 py-1 rounded text-cyan-300 border border-slate-700">%MP: {calcMP}%</span>
+                                                <span className="text-xs sm:text-sm font-medium bg-slate-800 px-2 py-1 rounded text-cyan-300 border border-slate-700">IPO: {calcIPO}%</span>
+                                            </div>
+                                            <p className="text-slate-300 leading-relaxed text-sm">{analisisTextos.txtTerritorial}</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 relative overflow-hidden group hover:border-orange-500/30 transition-all">
+                                    <div className="flex flex-col sm:flex-row items-start gap-4">
+                                        <div className="p-4 bg-orange-950/50 rounded-xl text-orange-400 border border-orange-900/50 shrink-0"><i className="fa-solid fa-mosquito text-2xl"></i></div>
+                                        <div>
+                                            <h3 className="text-lg font-bold text-white mb-1">2. Densidad Focalizada</h3>
+                                            <div className="flex gap-4 mb-3"><span className="text-xs sm:text-sm font-medium bg-slate-800 px-2 py-1 rounded text-orange-300 border border-slate-700">PHO: {calcPHO}</span></div>
+                                            <p className="text-slate-300 leading-relaxed text-sm">Mientras que los indicadores anteriores muestran <i>dónde</i> está el vector, el PHO determina la intensidad: {analisisTextos.txtDensidad}</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 relative overflow-hidden group hover:border-rose-500/30 transition-all">
+                                    <div className="absolute top-0 right-0 w-2 h-full bg-gradient-to-b from-rose-500/50 to-transparent"></div>
+                                    <div className="flex flex-col sm:flex-row items-start gap-4">
+                                        <div className="p-4 bg-rose-950/50 rounded-xl text-rose-400 border border-rose-900/50 shrink-0"><i className="fa-solid fa-triangle-exclamation text-2xl"></i></div>
+                                        <div>
+                                            <h3 className="text-lg font-bold text-white mb-1">3. Síntesis del Riesgo Total</h3>
+                                            <div className="flex gap-4 mb-3"><span className="text-xs sm:text-sm font-bold bg-rose-950/50 px-2 py-1 rounded text-rose-300 border border-rose-800">PHM General: {calcPHM}</span></div>
+                                            <p className="text-slate-300 leading-relaxed text-sm">
+                                                La convergencia de abundancia y extensión se engloba en el PHM. La conclusión operativa es: <br/><br/>
+                                                <strong className="text-white">{analisisTextos.txtRiesgo}</strong>
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* VISTA 5: MATRICES NUMÉRICAS ACTUALIZADAS */}
+                    {activeTab === 'metricas' && (
+                        <div className="space-y-6 animate-fade-in pb-8">
+                        <div className="bg-slate-900/80 border border-cyan-500/30 rounded-2xl p-6 backdrop-blur-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                            <div className="flex items-start gap-4">
+                                <div className="bg-cyan-500/20 p-3 rounded-xl border border-cyan-500/40 shrink-0"><i className="fa-solid fa-calculator text-cyan-400 text-[32px]"></i></div>
+                                <div>
+                                    <h2 className="text-xl font-bold text-white mb-1">Matriz de Indicadores Numéricos</h2>
+                                    <p className="text-slate-400 text-sm leading-relaxed">Cálculos Oficiales CENAPRECE correspondientes a la SE {statsGlobales.semanaEpidemiologica}.</p>
+                                </div>
+                            </div>
+                            <button onClick={descargarIndicadoresCSV} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg font-bold shadow-lg transition-colors flex items-center gap-2 w-full sm:w-auto justify-center shrink-0">
+                                <i className="fa-solid fa-download"></i> CSV Base Datos
+                            </button>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {/* Ajuste de fórmulas exactas según la imagen oficial y corrección "Revisadas" */}
+                            <IndicatorCard title="IPO" name="Índice Positividad de Ovitrampas" value={`${calcIPO}%`} formula="(Ovitrampas Positivas / Ovitrampas Revisadas) X 100" explanation="Dispersión territorial del vector." colorTheme="rose" />
+                            <IndicatorCard title="PHO" name="Promedio Huevos por Ovitrampa" value={calcPHO} formula="(Total de Huevos / Ovitrampas Positivas)" explanation="Densidad reproductiva de hembras grávidas." colorTheme="orange" />
+                            <IndicatorCard title="PHM" name="Promedio Huevos por Manzana" value={calcPHM} formula="(Total de Huevos / Manzanas Revisadas)" explanation="Riesgo Relativo de Transmisión global en la ciudad." colorTheme="amber" />
+                            <IndicatorCard title="PHMP" name="Promedio Huevos / Mzn Positiva" value={calcPHMP} formula="(Total de Huevos / Manzanas Positivas)" explanation="Intensidad de reproducción concentrada en los focos." colorTheme="emerald" />
+                            <IndicatorCard title="%MP" name="Porcentaje Manzanas Positivas" value={`${calcMP}%`} formula="(Manzanas Positivas / Manzanas Revisadas) X 100" explanation="Extensión de riesgo geográfico." colorTheme="cyan" />
+                        </div>
+                        </div>
+                    )}
+
+                    {/* VISTA 6: RADAR MAPA REAL */}
+                    {activeTab === 'radar' && (
+                        <div className="flex flex-col xl:flex-row gap-6 animate-fade-in h-[calc(100vh-220px)] min-h-[600px] pb-8">
+                        
+                        <div className="flex-1 bg-slate-900/50 p-4 rounded-2xl border border-slate-800 backdrop-blur-sm flex flex-col h-[500px] xl:h-full relative">
+                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
+                                <h2 className="text-xl font-bold text-white flex items-center gap-2"><i className="fa-solid fa-earth-americas text-cyan-400"></i> Cartografía Táctica (PHM)</h2>
+                                <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+                                    {mapViewMode === 'puntos' && (
+                                        <button onClick={descargarMapaImagen} className="flex-1 sm:flex-none justify-center px-3 py-1.5 rounded-lg text-sm font-bold transition-colors bg-emerald-600 text-white hover:bg-emerald-500 shadow-md flex items-center gap-2">
+                                            <i className="fa-solid fa-camera"></i> Foto
+                                        </button>
+                                    )}
+                                    <button onClick={() => setMapViewMode('puntos')} className={`flex-1 sm:flex-none justify-center px-3 py-1.5 rounded-lg text-sm font-bold transition-colors ${mapViewMode === 'puntos' ? 'bg-cyan-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>GPS</button>
+                                    <button onClick={() => setMapViewMode('colonias')} className={`flex-1 sm:flex-none justify-center px-3 py-1.5 rounded-lg text-sm font-bold transition-colors ${mapViewMode === 'colonias' ? 'bg-cyan-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>Tabla Sectores</button>
+                                </div>
+                            </div>
+
+                            {mapViewMode === 'puntos' ? (
+                                <div ref={mapContainerRef} className="flex-1 w-full bg-slate-950 rounded-xl border border-slate-800 relative z-0">
+                                    <div className="absolute top-4 left-4 z-[400] pointer-events-none drop-shadow-lg hidden sm:block">
+                                        <h3 className="text-white font-black text-lg drop-shadow-md bg-slate-900/60 px-3 py-1 rounded-lg backdrop-blur-sm border border-slate-700">Riesgo Sectorial SE {statsGlobales.semanaEpidemiologica}</h3>
+                                    </div>
+                                    <div className="absolute bottom-4 right-4 flex flex-col gap-2 bg-slate-900/90 p-3 rounded-lg border border-slate-700 backdrop-blur-md z-[400] shadow-xl">
+                                        <span className="text-[10px] text-slate-400 font-bold mb-1 border-b border-slate-700 pb-1">RIESGO (PHM)</span>
+                                        <span className="flex items-center gap-2 text-xs font-medium text-white"><div className="w-3 h-3 rounded-full bg-rose-500"></div> Crítico (&gt; 50)</span>
+                                        <span className="flex items-center gap-2 text-xs font-medium text-white"><div className="w-3 h-3 rounded-full bg-orange-400"></div> Alto (&gt; 20)</span>
+                                        <span className="flex items-center gap-2 text-xs font-medium text-white"><div className="w-3 h-3 rounded-full bg-cyan-600"></div> Bajo (&lt; 20)</span>
+                                    </div>
+                                    <MapaInteractivo data={mapDataWithSectorRisk} onMarkerClick={setSelectedHotspot} />
+                                </div>
+                            ) : (
+                                <div className="h-full overflow-y-auto bg-slate-900/50 rounded-xl border border-slate-800">
+                                    <table className="w-full text-left border-collapse relative z-10">
+                                        <thead>
+                                            <tr className="border-b border-slate-700 text-slate-400 text-xs sm:text-sm sticky top-0 bg-slate-900 shadow-md">
+                                                <th className="p-3 font-semibold">Sector / Colonia</th>
+                                                <th className="p-3 font-semibold text-center hidden sm:table-cell">Ovitrampas Revisadas</th>
+                                                <th className="p-3 font-semibold text-center text-rose-400">Positivas</th>
+                                                <th className="p-3 font-semibold text-center text-orange-400 hidden sm:table-cell">Huevos</th>
+                                                <th className="p-3 font-semibold text-center text-amber-400 bg-amber-900/20">PHM Sector</th>
+                                                <th className="p-3 font-semibold text-center">Nivel</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-800/50 text-xs sm:text-sm">
+                                            {datosPorSector.map((sector, idx) => (
+                                                <tr key={idx} className="hover:bg-slate-800/30 transition-colors">
+                                                    <td className="p-3 font-medium text-white">{sector.nombre}</td>
+                                                    <td className="p-3 text-center text-slate-300 hidden sm:table-cell">{sector.revisadas}</td>
+                                                    <td className="p-3 text-center font-bold text-rose-400">{sector.positivas}</td>
+                                                    <td className="p-3 text-center font-bold text-orange-400 hidden sm:table-cell">{sector.huevos}</td>
+                                                    <td className="p-3 text-center font-bold text-amber-400 bg-amber-900/10">{sector.phm}</td>
+                                                    <td className="p-3 text-center">
+                                                        <span className={`px-2 py-1 rounded text-[10px] sm:text-xs font-bold uppercase ${sector.riesgoNivel === 'Crítico' ? 'bg-rose-500/20 text-rose-400' : sector.riesgoNivel === 'Alto' ? 'bg-orange-500/20 text-orange-400' : 'bg-cyan-500/20 text-cyan-400'}`}>{sector.riesgoNivel}</span>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="w-full xl:w-96 flex flex-col gap-4 shrink-0">
+                        {selectedHotspot && mapViewMode === 'puntos' ? (
+                            <div className="bg-slate-900 p-6 rounded-2xl border border-cyan-500/30 shadow-[0_0_30px_rgba(6,182,212,0.1)] animate-fade-in">
+                            <div className="flex items-start justify-between mb-4">
+                                <h3 className="text-xl font-bold text-white break-words">{selectedHotspot.id}</h3>
+                                <span className={`px-3 py-1 rounded-full text-xs font-black uppercase shrink-0 ${selectedHotspot.sectorRiesgo === 'Crítico' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/50' : selectedHotspot.sectorRiesgo === 'Alto' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/50' : 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/50'}`}>
+                                Riesgo: {selectedHotspot.sectorRiesgo}
+                                </span>
+                            </div>
+                            <p className="text-slate-400 text-sm mb-6 flex items-center gap-2"><i className="fa-solid fa-location-dot"></i> S:{selectedHotspot.sector} | M:{selectedHotspot.manzana}</p>
+                            <div className="grid grid-cols-2 gap-4 mb-6">
+                                <StatBox label="Huevos Trampa" value={selectedHotspot.huevos} />
+                                <StatBox label="PHM Sectorial" value={selectedHotspot.sectorPhm} isAlert={selectedHotspot.sectorRiesgo === 'Crítico'} />
+                            </div>
+                            <div className="border-t border-slate-800 pt-4">
+                                <h4 className="text-sm text-slate-400 mb-3 flex items-center gap-2"><i className="fa-solid fa-bolt text-amber-400 text-[16px]"></i> Estrategia Recomendada</h4>
+                                {selectedHotspot.sectorRiesgo === 'Crítico' ? (
+                                <div className="space-y-2">
+                                    <ActionTag text="INTERVENCIÓN INTEGRAL requerida." type="danger" />
+                                    <ActionTag text="Barrido 100% + Nebulización Espacial." type="danger" />
+                                </div>
+                                ) : selectedHotspot.sectorRiesgo === 'Alto' ? (
+                                <div className="space-y-2">
+                                    <ActionTag text="OPERATIVO DE BARRIDO requerido." type="warning" />
+                                    <ActionTag text="Trabajar 100% de manzanas del sector." type="warning" />
+                                </div>
+                                ) : (
+                                <div className="space-y-2">
+                                    <ActionTag text="TRATAMIENTO FOCALIZADO recomendado." type="info" />
+                                    <ActionTag text="Visitar exclusivamente manzanas (+)." type="info" />
+                                </div>
+                                )}
+                            </div>
+                            </div>
+                        ) : (
+                            <div className="bg-slate-900/50 p-6 rounded-2xl border border-slate-800 h-[380px] flex flex-col items-center justify-center text-center text-slate-500 border-dashed">
+                            <i className="fa-solid fa-map-location-dot text-[48px] mb-4 opacity-30"></i>
+                            <p className="px-4">{mapViewMode === 'puntos' ? 'Selecciona una ovitrampa en el mapa satelital para ver la táctica recomendada.' : 'La tabla muestra la densidad de huevos consolidada por Sector.'}</p>
+                            </div>
+                        )}
+                        </div>
+                        </div>
+                    )}
+                    </div>
+                </main>
+                </div>
+            );
+        }
+
+        // --- SUBCOMPONENTES UI REUTILIZABLES ---
+        function NavButton({ icon, label, active, onClick, disabled }) {
+            return (
+                <button onClick={disabled ? null : onClick} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all duration-300 relative shrink-0 ${disabled ? 'opacity-30 cursor-not-allowed text-slate-600' : active ? 'text-cyan-400 bg-slate-800 border border-slate-700 shadow-md' : 'text-slate-400 hover:text-cyan-300 hover:bg-slate-800/50 border border-transparent'}`}>
+                    <div className={`${active ? 'drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]' : ''}`}>{icon}</div>
+                    <span className="text-sm font-semibold whitespace-nowrap">{label}</span>
+                </button>
+            );
+        }
+
+        function StatBox({ label, value, isAlert }) {
+            return (
+                <div className={`p-3 rounded-xl border ${isAlert ? 'bg-rose-500/10 border-rose-500/30' : 'bg-slate-800/50 border-slate-700'}`}>
+                <p className="text-xs text-slate-400 mb-1 font-medium uppercase tracking-wider">{label}</p><p className={`text-xl font-black truncate ${isAlert ? 'text-rose-400' : 'text-white'}`}>{value}</p>
+                </div>
+            );
+        }
+
+        function IndicatorCard({ title, name, value, formula, explanation, colorTheme }) {
+            const themes = { rose: 'bg-rose-500/10 border-rose-500/30 text-rose-400 from-rose-900/40', orange: 'bg-orange-500/10 border-orange-500/30 text-orange-400 from-orange-900/40', amber: 'bg-amber-500/10 border-amber-500/30 text-amber-400 from-amber-900/40', emerald: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 from-emerald-900/40', cyan: 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400 from-cyan-900/40' };
+            const themeClass = themes[colorTheme] || themes.cyan;
+            return (
+                <div className={`bg-slate-900 border rounded-2xl p-6 relative overflow-hidden group hover:bg-gradient-to-br ${themeClass} transition-all duration-300`}>
+                <div className="flex justify-between items-start mb-4">
+                    <div><h3 className="text-2xl font-black text-white">{title}</h3><p className="text-xs font-bold uppercase tracking-wider opacity-70 mt-1">{name}</p></div>
+                    <div className="text-3xl font-black drop-shadow-md">{value}</div>
+                </div>
+                <div className="mb-4 bg-slate-950/50 p-3 rounded-lg border border-slate-800 flex items-center gap-3">
+                    <i className="fa-solid fa-calculator opacity-50 shrink-0 text-[18px]"></i><span className="text-xs font-mono text-slate-300 break-words">{formula}</span>
+                </div>
+                <div className="flex items-start gap-2 text-sm text-slate-400"><i className="fa-solid fa-circle-info shrink-0 mt-0.5 text-[16px]"></i><p className="leading-relaxed">{explanation}</p></div>
+                </div>
+            );
+        }
+
+        function ActionTag({ text, type }) {
+            const styles = { danger: 'bg-rose-950/50 border-rose-800 text-rose-300', warning: 'bg-orange-950/50 border-orange-800 text-orange-300', info: 'bg-cyan-950/50 border-cyan-800 text-cyan-300', primary: 'bg-indigo-950/50 border-indigo-800 text-indigo-300' };
+            return (
+                <div className={`flex items-start gap-2 p-2 border rounded-lg text-xs font-medium leading-tight ${styles[type]}`}>
+                <i className="fa-solid fa-chevron-right shrink-0 mt-0.5 text-[12px]"></i> {text}
+                </div>
+            );
+        }
+
+        function TacticalCard({ title, priority, target, icon, colorTheme, action, onClick }) {
+            const themes = { 
+                rose: { bgIcon: 'bg-rose-500/20 text-rose-400', badge: 'bg-rose-500/20 text-rose-400 border-rose-500/30', glow: 'bg-rose-500/10', btnHover: 'hover:bg-rose-600 hover:border-rose-500' }, 
+                orange: { bgIcon: 'bg-orange-500/20 text-orange-400', badge: 'bg-orange-500/20 text-orange-400 border-orange-500/30', glow: 'bg-orange-500/10', btnHover: 'hover:bg-orange-600 hover:border-orange-500' }, 
+                cyan: { bgIcon: 'bg-cyan-500/20 text-cyan-400', badge: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30', glow: 'bg-cyan-500/10', btnHover: 'hover:bg-cyan-600 hover:border-cyan-500' }, 
+                indigo: { bgIcon: 'bg-indigo-500/20 text-indigo-400', badge: 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30', glow: 'bg-indigo-500/10', btnHover: 'hover:bg-indigo-600 hover:border-indigo-500' } 
+            };
+            const theme = themes[colorTheme] || themes.cyan;
+            return (
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 relative overflow-hidden group hover:border-slate-700 transition-all">
+                <div className={`absolute -top-10 -right-10 w-32 h-32 blur-3xl rounded-full transition-all ${theme.glow}`}></div>
+                <div className="flex justify-between items-start mb-6 relative z-10"><div className={`p-3 rounded-xl border border-transparent ${theme.bgIcon}`}>{icon}</div><span className={`px-2 py-1 rounded border text-xs font-black uppercase tracking-wider ${theme.badge}`}>{priority}</span></div>
+                <div className="relative z-10"><h3 className="text-lg font-bold text-white mb-2">{title}</h3><p className="text-sm text-slate-400 mb-6 flex items-center gap-2 font-medium"><i className="fa-solid fa-crosshairs text-[16px]"></i> {target}</p><button onClick={onClick} className={`w-full py-3 rounded-xl text-white font-bold transition-all shadow-lg text-sm bg-slate-800 border border-slate-700 ${theme.btnHover}`}>{action}</button></div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<CentroInteligenciaVectorial />);
+    </script>
+</body>
+</html>
