@@ -150,7 +150,7 @@
             
             // STATS CON NOMENCLATURA OFICIAL CENAPRECE
             const statsGlobales = dataSemanaActual?.statsGlobales || {
-                ovitrampasRevisadas: 0, ovitrampasPositivas: 0, totalHuevos: 0, manzanasRevisadas: 0, manzanasPositivas: 0, semanaEpidemiologica: 'S/N'
+                ovitrampasLeidas: 0, ovitrampasPositivas: 0, totalHuevos: 0, manzanasTrabajadas: 0, manzanasPositivas: 0, semanaEpidemiologica: 'S/N'
             };
             const datosPorSector = dataSemanaActual?.datosPorSector || [];
             const isWeeklyLoaded = Object.keys(historialSemanas).length > 0;
@@ -162,17 +162,29 @@
                 const reader = new FileReader();
                 reader.onload = (evt) => {
                     const rows = evt.target.result.split('\n');
-                    const headers = rows[0].split(',').map(h => h.trim().toLowerCase());
+                    
+                    // Detección automática de cabecera
+                    let headerRowIndex = 0;
+                    for (let i = 0; i < Math.min(10, rows.length); i++) {
+                        if (rows[i].toLowerCase().includes('ovitrampa') || rows[i].toLowerCase().includes('clave')) {
+                            headerRowIndex = i;
+                            break;
+                        }
+                    }
+
+                    // Limpieza exhaustiva de caracteres especiales de Windows (\r) y comillas
+                    const headers = rows[headerRowIndex].split(',').map(h => h.trim().toLowerCase().replace(/["\r]/g, ''));
                     const xIdx = headers.findIndex(h => h === 'pocision_x' || h === 'posicion_x');
                     const yIdx = headers.findIndex(h => h === 'pocision_y' || h === 'posicion_y');
                     const oviIdx = headers.findIndex(h => h === 'ovitrampa');
+                    
                     const catalog = {};
-                    for(let i = 1; i < rows.length; i++) {
+                    for(let i = headerRowIndex + 1; i < rows.length; i++) {
                         const cols = rows[i].split(',');
                         if(cols.length > Math.max(xIdx, yIdx, oviIdx)) {
-                            const id = cols[oviIdx]?.trim();
-                            const x = parseFloat(cols[xIdx]);
-                            const y = parseFloat(cols[yIdx]);
+                            const id = cols[oviIdx]?.trim().replace(/["\r]/g, '');
+                            const x = parseFloat(cols[xIdx]?.replace(/["\r]/g, ''));
+                            const y = parseFloat(cols[yIdx]?.replace(/["\r]/g, ''));
                             if(id && !isNaN(x) && !isNaN(y)) catalog[id] = { x, y };
                         }
                     }
@@ -182,7 +194,7 @@
                 reader.readAsText(file);
             };
 
-            // LECTURA DE DATOS MENSUALES/SEMANALES
+            // LECTURA DE DATOS MENSUALES/SEMANALES CON PROTECCIÓN AVANZADA
             const handleWeeklyUpload = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
@@ -192,7 +204,25 @@
                 reader.onload = (evt) => {
                     const rows = evt.target.result.split('\n');
                     if(rows.length <= 1) { setIsProcessing(false); return; }
-                    const headers = rows[0].split(',').map(h => h.trim().toLowerCase());
+                    
+                    // Buscar la fila de cabeceras saltando las introducciones de la plataforma (Ej. "DescargaLecturas")
+                    let headerRowIndex = -1;
+                    for (let i = 0; i < Math.min(15, rows.length); i++) {
+                        const rowLower = rows[i].toLowerCase();
+                        if (rowLower.includes('ovitrampa') && rowLower.includes('huevecillos')) {
+                            headerRowIndex = i;
+                            break;
+                        }
+                    }
+
+                    if (headerRowIndex === -1) {
+                        alert("No se pudo detectar el formato de columnas oficiales en el archivo CSV.");
+                        setIsProcessing(false);
+                        return;
+                    }
+
+                    // Limpiamos los headers de \r de Windows
+                    const headers = rows[headerRowIndex].split(',').map(h => h.trim().toLowerCase().replace(/["\r]/g, ''));
                     
                     const oviIdx = headers.findIndex(h => h === 'ovitrampa');
                     const huevosIdx = headers.findIndex(h => h === 'huevecillos');
@@ -203,42 +233,49 @@
 
                     const weeksData = {};
 
-                    for(let i = 1; i < rows.length; i++) {
+                    for(let i = headerRowIndex + 1; i < rows.length; i++) {
                         const cols = rows[i].split(',');
                         if(cols.length > Math.max(oviIdx, huevosIdx)) {
-                            const id = cols[oviIdx]?.trim();
-                            const huevosStr = cols[huevosIdx]?.trim();
+                            // Limpieza profunda por cada dato leído
+                            const id = cols[oviIdx]?.trim().replace(/["\r]/g, '');
+                            const huevosStr = cols[huevosIdx]?.trim().replace(/["\r]/g, '');
+                            
                             if(!id || huevosStr === undefined || huevosStr === '') continue;
+                            
                             const huevos = parseInt(huevosStr, 10);
                             if(isNaN(huevos)) continue;
                             
-                            const semana = (semIdx !== -1 && cols[semIdx]) ? cols[semIdx].trim() : 'S/N';
+                            const semanaRaw = cols[semIdx]?.trim().replace(/["\r]/g, '');
+                            const semana = (semIdx !== -1 && semanaRaw) ? semanaRaw : 'S/N';
 
                             if (!weeksData[semana]) {
                                 weeksData[semana] = {
-                                    mergedData: [], totalHuevos: 0, positivas: 0, revisadas: 0, manzanasTracker: {}, sectoresTracker: {}
+                                    mergedData: [], totalHuevos: 0, positivas: 0, leidas: 0, manzanasTracker: {}, sectoresTracker: {}
                                 };
                             }
 
                             const weekObj = weeksData[semana];
                             
-                            // Nomenclatura oficial: Ovitrampas Revisadas
-                            weekObj.revisadas++;
+                            weekObj.leidas++;
                             if (huevos > 0) weekObj.positivas++;
                             weekObj.totalHuevos += huevos;
 
-                            const sector = cols[sectorIdx]?.trim() || 'S/N';
-                            const manzana = cols[mznIdx]?.trim() || 'S/N';
-                            const muni = cols[muniIdx]?.trim() || 'Sector';
+                            // Limpieza de Ceros a la Izquierda (0180 -> 180, 0009 -> 9)
+                            const sectorRaw = cols[sectorIdx]?.trim().replace(/["\r]/g, '') || 'S/N';
+                            const manzanaRaw = cols[mznIdx]?.trim().replace(/["\r]/g, '') || 'S/N';
+                            const muni = cols[muniIdx]?.trim().replace(/["\r]/g, '') || 'Sector';
                             
+                            const sector = isNaN(parseInt(sectorRaw, 10)) ? sectorRaw : parseInt(sectorRaw, 10).toString();
+                            const manzana = isNaN(parseInt(manzanaRaw, 10)) ? manzanaRaw : parseInt(manzanaRaw, 10).toString();
+
                             const mznKey = `${sector}-${manzana}`;
                             if (!weekObj.manzanasTracker[mznKey]) weekObj.manzanasTracker[mznKey] = { huevos: 0, positivas: 0 };
                             weekObj.manzanasTracker[mznKey].huevos += huevos;
                             if (huevos > 0) weekObj.manzanasTracker[mznKey].positivas++;
 
                             const secKey = `${muni} - Sector ${sector}`;
-                            if (!weekObj.sectoresTracker[secKey]) weekObj.sectoresTracker[secKey] = { nombre: secKey, municipio: muni, sector: sector, huevos: 0, positivas: 0, revisadas: 0, manzanasSet: new Set() };
-                            weekObj.sectoresTracker[secKey].revisadas++;
+                            if (!weekObj.sectoresTracker[secKey]) weekObj.sectoresTracker[secKey] = { nombre: secKey, municipio: muni, sector: sector, huevos: 0, positivas: 0, leidas: 0, manzanasSet: new Set() };
+                            weekObj.sectoresTracker[secKey].leidas++;
                             weekObj.sectoresTracker[secKey].huevos += huevos;
                             if (huevos > 0) weekObj.sectoresTracker[secKey].positivas++;
                             weekObj.sectoresTracker[secKey].manzanasSet.add(manzana);
@@ -255,8 +292,7 @@
 
                     Object.keys(weeksData).forEach(semana => {
                         const weekObj = weeksData[semana];
-                        // Nomenclatura oficial: Manzanas Revisadas
-                        const manzanasRevisadas = Object.keys(weekObj.manzanasTracker).length;
+                        const manzanasTrabajadas = Object.keys(weekObj.manzanasTracker).length;
                         const manzanasPositivas = Object.values(weekObj.manzanasTracker).filter(m => m.positivas > 0).length;
 
                         const datosSectorArray = Object.values(weekObj.sectoresTracker).map(s => {
@@ -266,15 +302,15 @@
                             return { ...s, pho: parseFloat(pho), phm: parseFloat(phm), riesgoNivel: riesgo, manzanasUnicas: s.manzanasSet.size };
                         }).sort((a, b) => b.phm - a.phm);
 
-                        const calcPHMGlobal = manzanasRevisadas > 0 ? (weekObj.totalHuevos / manzanasRevisadas).toFixed(1) : 0;
+                        const calcPHMGlobal = manzanasTrabajadas > 0 ? (weekObj.totalHuevos / manzanasTrabajadas).toFixed(1) : 0;
 
                         newHistorial[semana] = {
                             gridData: weekObj.mergedData,
                             statsGlobales: {
-                                ovitrampasRevisadas: weekObj.revisadas,
+                                ovitrampasLeidas: weekObj.leidas,
                                 ovitrampasPositivas: weekObj.positivas,
                                 totalHuevos: weekObj.totalHuevos,
-                                manzanasRevisadas: manzanasRevisadas,
+                                manzanasTrabajadas: manzanasTrabajadas,
                                 manzanasPositivas: manzanasPositivas,
                                 semanaEpidemiologica: semana,
                                 phmGlobal: parseFloat(calcPHMGlobal)
@@ -298,12 +334,11 @@
                 e.target.value = null; 
             };
 
-            // CÁLCULOS INDICADORES GLOBALES DE LA SEMANA ACTUAL (Acorde a Manual CENAPRECE)
-            const calcIPO = statsGlobales.ovitrampasRevisadas > 0 ? ((statsGlobales.ovitrampasPositivas / statsGlobales.ovitrampasRevisadas) * 100).toFixed(1) : '0.0';
+            const calcIPO = statsGlobales.ovitrampasLeidas > 0 ? ((statsGlobales.ovitrampasPositivas / statsGlobales.ovitrampasLeidas) * 100).toFixed(1) : '0.0';
             const calcPHO = statsGlobales.ovitrampasPositivas > 0 ? (statsGlobales.totalHuevos / statsGlobales.ovitrampasPositivas).toFixed(1) : '0.0';
-            const calcPHM = statsGlobales.manzanasRevisadas > 0 ? (statsGlobales.totalHuevos / statsGlobales.manzanasRevisadas).toFixed(1) : '0.0';
+            const calcPHM = statsGlobales.manzanasTrabajadas > 0 ? (statsGlobales.totalHuevos / statsGlobales.manzanasTrabajadas).toFixed(1) : '0.0';
             const calcPHMP = statsGlobales.manzanasPositivas > 0 ? (statsGlobales.totalHuevos / statsGlobales.manzanasPositivas).toFixed(1) : '0.0';
-            const calcMP = statsGlobales.manzanasRevisadas > 0 ? ((statsGlobales.manzanasPositivas / statsGlobales.manzanasRevisadas) * 100).toFixed(1) : '0.0';
+            const calcMP = statsGlobales.manzanasTrabajadas > 0 ? ((statsGlobales.manzanasPositivas / statsGlobales.manzanasTrabajadas) * 100).toFixed(1) : '0.0';
 
             const mapDataWithSectorRisk = useMemo(() => {
                 return gridData.map(punto => {
@@ -369,14 +404,14 @@
             const descargarIndicadoresCSV = () => {
                 let csvContent = "data:text/csv;charset=utf-8,";
                 csvContent += "Semana,Indicador,Valor,Formula\n";
-                csvContent += `${statsGlobales.semanaEpidemiologica},% de Ovitrampas Positivas (IPO),${calcIPO}%,(Ovitrampas Positivas / Ovitrampas Revisadas) X 100\n`;
+                csvContent += `${statsGlobales.semanaEpidemiologica},% de Ovitrampas Positivas (IPO),${calcIPO}%,(Ovitrampas Positivas / Ovitrampas Leídas) X 100\n`;
                 csvContent += `${statsGlobales.semanaEpidemiologica},Promedio de Huevos por Ovitrampa (PHO),${calcPHO},(Total de Huevos / Ovitrampas Positivas)\n`;
-                csvContent += `${statsGlobales.semanaEpidemiologica},Promedio de Huevos por Manzana (PHM),${calcPHM},(Total de Huevos / Manzanas Revisadas)\n`;
+                csvContent += `${statsGlobales.semanaEpidemiologica},Promedio de Huevos por Manzana (PHM),${calcPHM},(Total de Huevos / Manzanas Trabajadas)\n`;
                 csvContent += `${statsGlobales.semanaEpidemiologica},Promedio de Huevos por Mzn Positiva (PHMP),${calcPHMP},(Total de Huevos / Manzanas Positivas)\n`;
-                csvContent += `${statsGlobales.semanaEpidemiologica},% de Manzanas Positivas (%MP),${calcMP}%,(Manzanas Positivas / Manzanas Revisadas) X 100\n\n`;
-                csvContent += "Municipio,Sector,Ovitrampas Revisadas,Manzanas Revisadas,Positivas,Total Huevos,PHO Sector,PHM Sector,Nivel Riesgo (Basado en PHM)\n";
+                csvContent += `${statsGlobales.semanaEpidemiologica},% de Manzanas Positivas (%MP),${calcMP}%,(Manzanas Positivas / Manzanas Trabajadas) X 100\n\n`;
+                csvContent += "Municipio,Sector,Ovitrampas Leídas,Manzanas Trabajadas,Positivas,Total Huevos,PHO Sector,PHM Sector,Nivel Riesgo (Basado en PHM)\n";
                 datosPorSector.forEach(s => {
-                    csvContent += `${s.municipio},${s.sector},${s.revisadas},${s.manzanasUnicas},${s.positivas},${s.huevos},${s.pho},${s.phm},${s.riesgoNivel}\n`;
+                    csvContent += `${s.municipio},${s.sector},${s.leidas},${s.manzanasUnicas},${s.positivas},${s.huevos},${s.pho},${s.phm},${s.riesgoNivel}\n`;
                 });
 
                 const encodedUri = encodeURI(csvContent);
@@ -484,7 +519,7 @@
 
                         {isWeeklyLoaded && (
                             <div className="bg-slate-900 border border-slate-800 rounded-lg px-4 py-2 flex items-center gap-4 text-sm shadow-md shrink-0 w-full md:w-auto overflow-x-auto no-scrollbar">
-                                <div className="whitespace-nowrap"><span className="text-slate-500 block text-xs">Universo</span><span className="text-cyan-400 font-bold">{statsGlobales.ovitrampasRevisadas} Revisadas</span></div>
+                                <div className="whitespace-nowrap"><span className="text-slate-500 block text-xs">Universo</span><span className="text-cyan-400 font-bold">{statsGlobales.ovitrampasLeidas} Leídas</span></div>
                                 <div className="w-px h-6 bg-slate-800 shrink-0"></div>
                                 <div className="whitespace-nowrap"><span className="text-slate-500 block text-xs">Tot. Huevecillos</span><span className="text-orange-400 font-bold">{statsGlobales.totalHuevos.toLocaleString()}</span></div>
                             </div>
@@ -602,7 +637,7 @@
                                     <div className="p-2 bg-cyan-500/20 rounded-lg text-cyan-400"><i className="fa-solid fa-earth-americas text-xl"></i></div>
                                     <div>
                                         <h3 className="text-xl font-bold text-white">Tendencia del PHM Global</h3>
-                                        <p className="text-sm text-slate-400">Riesgo promedio de la ciudad entera (Universo Total: {statsGlobales.ovitrampasRevisadas} Ovitrampas Revisadas).</p>
+                                        <p className="text-sm text-slate-400">Riesgo promedio de la ciudad entera (Universo Total: {statsGlobales.ovitrampasLeidas} Ovitrampas Leídas).</p>
                                     </div>
                                 </div>
 
@@ -763,11 +798,11 @@
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                             {/* Ajuste de fórmulas exactas según la imagen oficial y corrección "Revisadas" */}
-                            <IndicatorCard title="IPO" name="Índice Positividad de Ovitrampas" value={`${calcIPO}%`} formula="(Ovitrampas Positivas / Ovitrampas Revisadas) X 100" explanation="Dispersión territorial del vector." colorTheme="rose" />
+                            <IndicatorCard title="IPO" name="Índice Positividad de Ovitrampas" value={`${calcIPO}%`} formula="(Ovitrampas Positivas / Ovitrampas Leídas) X 100" explanation="Dispersión territorial del vector." colorTheme="rose" />
                             <IndicatorCard title="PHO" name="Promedio Huevos por Ovitrampa" value={calcPHO} formula="(Total de Huevos / Ovitrampas Positivas)" explanation="Densidad reproductiva de hembras grávidas." colorTheme="orange" />
-                            <IndicatorCard title="PHM" name="Promedio Huevos por Manzana" value={calcPHM} formula="(Total de Huevos / Manzanas Revisadas)" explanation="Riesgo Relativo de Transmisión global en la ciudad." colorTheme="amber" />
+                            <IndicatorCard title="PHM" name="Promedio Huevos por Manzana" value={calcPHM} formula="(Total de Huevos / Manzanas Trabajadas)" explanation="Riesgo Relativo de Transmisión global en la ciudad." colorTheme="amber" />
                             <IndicatorCard title="PHMP" name="Promedio Huevos / Mzn Positiva" value={calcPHMP} formula="(Total de Huevos / Manzanas Positivas)" explanation="Intensidad de reproducción concentrada en los focos." colorTheme="emerald" />
-                            <IndicatorCard title="%MP" name="Porcentaje Manzanas Positivas" value={`${calcMP}%`} formula="(Manzanas Positivas / Manzanas Revisadas) X 100" explanation="Extensión de riesgo geográfico." colorTheme="cyan" />
+                            <IndicatorCard title="%MP" name="Porcentaje Manzanas Positivas" value={`${calcMP}%`} formula="(Manzanas Positivas / Manzanas Trabajadas) X 100" explanation="Extensión de riesgo geográfico." colorTheme="cyan" />
                         </div>
                         </div>
                     )}
@@ -809,7 +844,7 @@
                                         <thead>
                                             <tr className="border-b border-slate-700 text-slate-400 text-xs sm:text-sm sticky top-0 bg-slate-900 shadow-md">
                                                 <th className="p-3 font-semibold">Sector / Colonia</th>
-                                                <th className="p-3 font-semibold text-center hidden sm:table-cell">Ovitrampas Revisadas</th>
+                                                <th className="p-3 font-semibold text-center hidden sm:table-cell">Ovitrampas Leídas</th>
                                                 <th className="p-3 font-semibold text-center text-rose-400">Positivas</th>
                                                 <th className="p-3 font-semibold text-center text-orange-400 hidden sm:table-cell">Huevos</th>
                                                 <th className="p-3 font-semibold text-center text-amber-400 bg-amber-900/20">PHM Sector</th>
@@ -820,7 +855,7 @@
                                             {datosPorSector.map((sector, idx) => (
                                                 <tr key={idx} className="hover:bg-slate-800/30 transition-colors">
                                                     <td className="p-3 font-medium text-white">{sector.nombre}</td>
-                                                    <td className="p-3 text-center text-slate-300 hidden sm:table-cell">{sector.revisadas}</td>
+                                                    <td className="p-3 text-center text-slate-300 hidden sm:table-cell">{sector.leidas}</td>
                                                     <td className="p-3 text-center font-bold text-rose-400">{sector.positivas}</td>
                                                     <td className="p-3 text-center font-bold text-orange-400 hidden sm:table-cell">{sector.huevos}</td>
                                                     <td className="p-3 text-center font-bold text-amber-400 bg-amber-900/10">{sector.phm}</td>
