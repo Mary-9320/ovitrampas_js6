@@ -923,7 +923,7 @@
         function NavButton({ icon, label, active, onClick, disabled }) {
             return (
                 <button onClick={disabled ? null : onClick} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all duration-300 relative shrink-0 ${disabled ? 'opacity-30 cursor-not-allowed text-slate-600' : active ? 'text-blue-400 bg-slate-800 border border-slate-700 shadow-md' : 'text-slate-400 hover:text-blue-300 hover:bg-slate-800/50 border border-transparent'}`}>
-                    <div className={`${active ? 'drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]' : ''}`}>{icon}</div>
+                    <div className={`${active ? 'drop-shadow-[0_0_8px_rgba(59,130,246,0.8)]' : ''}`}>{icon}</div>
                     <span className="text-sm font-semibold whitespace-nowrap">{label}</span>
                 </button>
             );
