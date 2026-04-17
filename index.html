@@ -92,7 +92,7 @@
                         if (punto.y && punto.x) {
                             const color = punto.sectorRiesgo === 'Crítico' ? '#f43f5e' : 
                                           punto.sectorRiesgo === 'Alto' ? '#fb923c' :    
-                                          '#0891b2';                                     
+                                          '#2563eb';                                     
 
                             const marker = L.circleMarker([punto.y, punto.x], {
                                 radius: 6,
@@ -105,7 +105,7 @@
 
                             const popupContent = `
                                 <div style="font-family: sans-serif; min-width: 150px;">
-                                    <p style="font-weight: bold; color: #22d3ee; margin: 0 0 4px 0; border-bottom: 1px solid #334155; padding-bottom: 4px;">${punto.id}</p>
+                                    <p style="font-weight: bold; color: #60a5fa; margin: 0 0 4px 0; border-bottom: 1px solid #334155; padding-bottom: 4px;">${punto.id}</p>
                                     <p style="font-size: 11px; margin: 0 0 2px 0;">S: ${punto.sector} | M: ${punto.manzana}</p>
                                     <p style="font-size: 11px; margin: 0 0 4px 0; color: ${color}; font-weight: bold;">Riesgo Sector: ${punto.sectorRiesgo}</p>
                                     <p style="font-size: 12px; margin: 0;">Huevos Trampa: <b>${punto.huevos}</b></p>
@@ -362,7 +362,7 @@
                 else if (pho > 40) txtDensidad = "A pesar de una menor dispersión territorial, los focos que dieron positivo registran un PHO alarmante, indicando una concentración masiva de oviposición en sitios específicos (alta productividad focal).";
                 else txtDensidad = "El Promedio de Huevos por Ovitrampa (PHO) muestra una tasa de oviposición de leve a moderada en los puntos positivos.";
 
-                let txtRiesgo = ""; let riesgoNivelClase = "text-cyan-400"; let riesgoNivelTexto = "BAJO / CONTROLADO";
+                let txtRiesgo = ""; let riesgoNivelClase = "text-blue-400"; let riesgoNivelTexto = "BAJO / CONTROLADO";
                 if (phm >= 50) {
                     txtRiesgo = "El PHM se encuentra en niveles de ALERTA MÁXIMA. Se recomienda implementar urgente un Control de Barrido e Intervención Integral. Correlacionar inmediatamente con casos probables de dengue para justificar control químico.";
                     riesgoNivelClase = "text-rose-500 font-black"; riesgoNivelTexto = "CRÍTICO";
@@ -371,7 +371,7 @@
                     riesgoNivelClase = "text-orange-400 font-bold"; riesgoNivelTexto = "ALTO";
                 } else {
                     txtRiesgo = "El PHM sugiere un escenario de baja probabilidad para el sostenimiento de una cadena de transmisión. Mantener Tratamientos Focalizados en donde se hayan detectado ovitrampas positivas.";
-                    riesgoNivelClase = "text-cyan-400 font-bold"; riesgoNivelTexto = "BAJO";
+                    riesgoNivelClase = "text-blue-400 font-bold"; riesgoNivelTexto = "BAJO";
                 }
                 return { txtTerritorial, txtDensidad, txtRiesgo, riesgoNivelClase, riesgoNivelTexto };
             };
@@ -468,16 +468,16 @@
             };
 
             return (
-                <div className="h-screen w-full bg-slate-950 text-slate-200 font-sans flex flex-col selection:bg-cyan-500 selection:text-white overflow-hidden">
+                <div className="h-screen w-full bg-slate-950 text-slate-200 font-sans flex flex-col selection:bg-blue-500 selection:text-white overflow-hidden">
                 
                 {/* --- BARRA DE NAVEGACIÓN SUPERIOR --- */}
                 <nav className="w-full bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 py-3 z-50 shrink-0 shadow-lg">
                     <div className="flex items-center gap-3 shrink-0 mr-6">
-                        <div className="p-2 bg-cyan-500/10 rounded-lg border border-cyan-500/20">
-                            <i className="fa-solid fa-bug text-cyan-400 text-xl"></i>
+                        <div className="p-2 bg-blue-500/10 rounded-lg border border-blue-500/20">
+                            <i className="fa-solid fa-bug text-blue-400 text-xl"></i>
                         </div>
                         <div>
-                            <h1 className="text-lg font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 tracking-wider whitespace-nowrap">S.I.G.E. VECTORES</h1>
+                            <h1 className="text-lg font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400 tracking-wider whitespace-nowrap">S.I.G.E. VECTORES</h1>
                             <p className="text-[10px] text-slate-500 uppercase font-bold hidden sm:block whitespace-nowrap">Inteligencia Epidemiológica</p>
                         </div>
                     </div>
@@ -498,7 +498,7 @@
                     <header className="mb-6 relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4 max-w-7xl mx-auto">
                         <div className="flex flex-wrap items-center gap-3">
                             <div className="text-slate-400 text-sm font-medium flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg shadow-sm whitespace-nowrap">
-                                <i className="fa-solid fa-layer-group text-cyan-400"></i> {Object.keys(historialSemanas).filter(k=>k!=='S/N').length} Semanas
+                                <i className="fa-solid fa-layer-group text-blue-400"></i> {Object.keys(historialSemanas).filter(k=>k!=='S/N').length} Semanas
                             </div>
                             
                             {isWeeklyLoaded && (
@@ -519,7 +519,7 @@
 
                         {isWeeklyLoaded && (
                             <div className="bg-slate-900 border border-slate-800 rounded-lg px-4 py-2 flex items-center gap-4 text-sm shadow-md shrink-0 w-full md:w-auto overflow-x-auto no-scrollbar">
-                                <div className="whitespace-nowrap"><span className="text-slate-500 block text-xs">Universo</span><span className="text-cyan-400 font-bold">{statsGlobales.ovitrampasLeidas} Leídas</span></div>
+                                <div className="whitespace-nowrap"><span className="text-slate-500 block text-xs">Universo</span><span className="text-blue-400 font-bold">{statsGlobales.ovitrampasLeidas} Leídas</span></div>
                                 <div className="w-px h-6 bg-slate-800 shrink-0"></div>
                                 <div className="whitespace-nowrap"><span className="text-slate-500 block text-xs">Tot. Huevecillos</span><span className="text-orange-400 font-bold">{statsGlobales.totalHuevos.toLocaleString()}</span></div>
                             </div>
@@ -532,7 +532,7 @@
                     {activeTab === 'upload' && (
                         <div className="max-w-4xl mx-auto mt-4 animate-fade-in">
                         <div className="bg-slate-900 p-8 rounded-3xl border border-slate-800 shadow-xl relative overflow-hidden">
-                            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-32 bg-cyan-500/10 blur-3xl rounded-full pointer-events-none"></div>
+                            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-32 bg-blue-500/10 blur-3xl rounded-full pointer-events-none"></div>
                             
                             <div className="text-center mb-8 relative z-10">
                             <h2 className="text-2xl md:text-3xl font-bold text-white mb-2">Motor de Ingesta Vectorial</h2>
@@ -541,7 +541,7 @@
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-10">
                             <div className={`border-2 border-dashed rounded-2xl p-6 text-center transition-all duration-300 relative group
-                                ${isGeoLoaded ? 'border-emerald-500 bg-emerald-950/20' : 'border-slate-700 hover:border-cyan-400/50 hover:bg-slate-800/50'}`}>
+                                ${isGeoLoaded ? 'border-emerald-500 bg-emerald-950/20' : 'border-slate-700 hover:border-blue-400/50 hover:bg-slate-800/50'}`}>
                                 {isGeoLoaded ? (
                                 <div className="flex flex-col items-center justify-center h-full text-emerald-400">
                                     <i className="fa-solid fa-circle-check mb-3 text-[48px]"></i>
@@ -552,7 +552,7 @@
                                 <>
                                     <input type="file" accept=".csv" onChange={handleGeoUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-50" title="Subir Coordenadas Fijas" />
                                     <div className="flex flex-col items-center text-slate-400 pointer-events-none">
-                                    <div className="p-3 bg-slate-800 rounded-full mb-3 group-hover:bg-cyan-900/50 transition-all text-cyan-400"><i className="fa-solid fa-location-dot text-[32px]"></i></div>
+                                    <div className="p-3 bg-slate-800 rounded-full mb-3 group-hover:bg-blue-900/50 transition-all text-blue-400"><i className="fa-solid fa-location-dot text-[32px]"></i></div>
                                     <h3 className="text-lg font-bold text-white">Paso 1: Padrón de Ovitrampas</h3>
                                     <p className="text-xs mt-2 text-slate-500 px-4">Sube el archivo de Coordenadas Fijas (Pocision_X, Pocision_Y).</p>
                                     </div>
@@ -561,17 +561,17 @@
                             </div>
 
                             <div className={`border-2 border-dashed rounded-2xl p-6 text-center transition-all duration-300 relative group
-                                ${!isGeoLoaded ? 'opacity-50 grayscale pointer-events-none border-slate-800' : isProcessing ? 'border-cyan-500 bg-cyan-950/30' : 'border-cyan-700 hover:border-cyan-400 hover:bg-slate-800/50 cursor-pointer'}`}>
+                                ${!isGeoLoaded ? 'opacity-50 grayscale pointer-events-none border-slate-800' : isProcessing ? 'border-blue-500 bg-blue-950/30' : 'border-blue-700 hover:border-blue-400 hover:bg-slate-800/50 cursor-pointer'}`}>
                                 {isProcessing ? (
-                                <div className="flex flex-col items-center justify-center h-full text-cyan-400 animate-pulse">
-                                    <div className="w-10 h-10 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mb-3"></div>
+                                <div className="flex flex-col items-center justify-center h-full text-blue-400 animate-pulse">
+                                    <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-3"></div>
                                     <p className="font-bold">Procesando Concentrado...</p>
                                 </div>
                                 ) : (
                                 <>
                                     <input type="file" accept=".csv" onChange={handleWeeklyUpload} disabled={!isGeoLoaded} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-50" title="Subir Lecturas" />
                                     <div className="flex flex-col items-center pointer-events-none">
-                                        <div className="p-3 bg-slate-800 rounded-full mb-3 group-hover:bg-cyan-900/50 transition-all text-cyan-400"><i className="fa-solid fa-file-csv text-[32px]"></i></div>
+                                        <div className="p-3 bg-slate-800 rounded-full mb-3 group-hover:bg-blue-900/50 transition-all text-blue-400"><i className="fa-solid fa-file-csv text-[32px]"></i></div>
                                         <h3 className="text-lg font-bold text-white">Paso 2: Subir Lecturas</h3>
                                         <p className="text-xs mt-2 text-slate-400 px-4 mb-2">Sube archivos con 1 o varias semanas juntas. La IA las separará automáticamente.</p>
                                         {isWeeklyLoaded && <span className="bg-indigo-600/30 text-indigo-400 text-[10px] font-black uppercase px-3 py-1 rounded border border-indigo-500/50">+ Subir más datos</span>}
@@ -601,8 +601,8 @@
                                 priority="Sectores de Riesgo Bajo" 
                                 target="Exclusivo en Manzanas Positivas" 
                                 icon={<i className="fa-solid fa-bullseye text-[28px]"></i>} 
-                                colorTheme="cyan" 
-                                action="Ruta Focalizada (CSV)" 
+                                colorTheme="blue" 
+                                action="Ruta Focalizada (CSV)"
                                 onClick={() => descargarAccionTactica('TRATAMIENTO FOCALIZADO', ['Bajo'], 'Rutas_Focalizadas', true)} 
                             />
                             <TacticalCard 
@@ -634,7 +634,7 @@
                             {/* GRÁFICA 1: PHM GLOBAL DE TODAS LAS OVITRAMPAS */}
                             <div className="bg-slate-900 rounded-2xl border border-slate-800 p-6 shadow-lg">
                                 <div className="flex items-center gap-3 mb-6">
-                                    <div className="p-2 bg-cyan-500/20 rounded-lg text-cyan-400"><i className="fa-solid fa-earth-americas text-xl"></i></div>
+                                    <div className="p-2 bg-blue-500/20 rounded-lg text-blue-400"><i className="fa-solid fa-earth-americas text-xl"></i></div>
                                     <div>
                                         <h3 className="text-xl font-bold text-white">Tendencia del PHM Global</h3>
                                         <p className="text-sm text-slate-400">Riesgo promedio de la ciudad entera (Universo Total: {statsGlobales.ovitrampasLeidas} Ovitrampas Leídas).</p>
@@ -652,8 +652,8 @@
                                             <AreaChart data={chartTrendData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
                                                 <defs>
                                                     <linearGradient id="colorPHMGlobal" x1="0" y1="0" x2="0" y2="1">
-                                                        <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.8}/>
-                                                        <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.1}/>
+                                                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8}/>
+                                                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.1}/>
                                                     </linearGradient>
                                                 </defs>
                                                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
@@ -665,7 +665,7 @@
                                                     type="monotone" 
                                                     dataKey="PHM_Global" 
                                                     name="PHM Global Ciudad" 
-                                                    stroke="#06b6d4" 
+                                                    stroke="#3b82f6" 
                                                     strokeWidth={4} 
                                                     fillOpacity={1} 
                                                     fill="url(#colorPHMGlobal)"
@@ -737,14 +737,14 @@
                             </div>
 
                             <div className="grid grid-cols-1 gap-6">
-                                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 relative overflow-hidden group hover:border-cyan-500/30 transition-all">
+                                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 relative overflow-hidden group hover:border-blue-500/30 transition-all">
                                     <div className="flex flex-col sm:flex-row items-start gap-4">
-                                        <div className="p-4 bg-cyan-950/50 rounded-xl text-cyan-400 border border-cyan-900/50 shrink-0"><i className="fa-solid fa-map-location-dot text-2xl"></i></div>
+                                        <div className="p-4 bg-blue-950/50 rounded-xl text-blue-400 border border-blue-900/50 shrink-0"><i className="fa-solid fa-map-location-dot text-2xl"></i></div>
                                         <div>
                                             <h3 className="text-lg font-bold text-white mb-1">1. Distribución Territorial y Habitacional</h3>
                                             <div className="flex gap-4 mb-3">
-                                                <span className="text-xs sm:text-sm font-medium bg-slate-800 px-2 py-1 rounded text-cyan-300 border border-slate-700">%MP: {calcMP}%</span>
-                                                <span className="text-xs sm:text-sm font-medium bg-slate-800 px-2 py-1 rounded text-cyan-300 border border-slate-700">IPO: {calcIPO}%</span>
+                                                <span className="text-xs sm:text-sm font-medium bg-slate-800 px-2 py-1 rounded text-blue-300 border border-slate-700">%MP: {calcMP}%</span>
+                                                <span className="text-xs sm:text-sm font-medium bg-slate-800 px-2 py-1 rounded text-blue-300 border border-slate-700">IPO: {calcIPO}%</span>
                                             </div>
                                             <p className="text-slate-300 leading-relaxed text-sm">{analisisTextos.txtTerritorial}</p>
                                         </div>
@@ -783,9 +783,9 @@
                     {/* VISTA 5: MATRICES NUMÉRICAS ACTUALIZADAS */}
                     {activeTab === 'metricas' && (
                         <div className="space-y-6 animate-fade-in pb-8">
-                        <div className="bg-slate-900/80 border border-cyan-500/30 rounded-2xl p-6 backdrop-blur-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                        <div className="bg-slate-900/80 border border-blue-500/30 rounded-2xl p-6 backdrop-blur-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                             <div className="flex items-start gap-4">
-                                <div className="bg-cyan-500/20 p-3 rounded-xl border border-cyan-500/40 shrink-0"><i className="fa-solid fa-calculator text-cyan-400 text-[32px]"></i></div>
+                                <div className="bg-blue-500/20 p-3 rounded-xl border border-blue-500/40 shrink-0"><i className="fa-solid fa-calculator text-blue-400 text-[32px]"></i></div>
                                 <div>
                                     <h2 className="text-xl font-bold text-white mb-1">Matriz de Indicadores Numéricos</h2>
                                     <p className="text-slate-400 text-sm leading-relaxed">Cálculos Oficiales CENAPRECE correspondientes a la SE {statsGlobales.semanaEpidemiologica}.</p>
@@ -802,7 +802,7 @@
                             <IndicatorCard title="PHO" name="Promedio Huevos por Ovitrampa" value={calcPHO} formula="(Total de Huevos / Ovitrampas Positivas)" explanation="Densidad reproductiva de hembras grávidas." colorTheme="orange" />
                             <IndicatorCard title="PHM" name="Promedio Huevos por Manzana" value={calcPHM} formula="(Total de Huevos / Manzanas Trabajadas)" explanation="Riesgo Relativo de Transmisión global en la ciudad." colorTheme="amber" />
                             <IndicatorCard title="PHMP" name="Promedio Huevos / Mzn Positiva" value={calcPHMP} formula="(Total de Huevos / Manzanas Positivas)" explanation="Intensidad de reproducción concentrada en los focos." colorTheme="emerald" />
-                            <IndicatorCard title="%MP" name="Porcentaje Manzanas Positivas" value={`${calcMP}%`} formula="(Manzanas Positivas / Manzanas Trabajadas) X 100" explanation="Extensión de riesgo geográfico." colorTheme="cyan" />
+                            <IndicatorCard title="%MP" name="Porcentaje Manzanas Positivas" value={`${calcMP}%`} formula="(Manzanas Positivas / Manzanas Trabajadas) X 100" explanation="Extensión de riesgo geográfico." colorTheme="blue" />
                         </div>
                         </div>
                     )}
@@ -813,15 +813,15 @@
                         
                         <div className="flex-1 bg-slate-900/50 p-4 rounded-2xl border border-slate-800 backdrop-blur-sm flex flex-col h-[500px] xl:h-full relative">
                             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
-                                <h2 className="text-xl font-bold text-white flex items-center gap-2"><i className="fa-solid fa-earth-americas text-cyan-400"></i> Cartografía Táctica (PHM)</h2>
+                                <h2 className="text-xl font-bold text-white flex items-center gap-2"><i className="fa-solid fa-earth-americas text-blue-400"></i> Cartografía Táctica (PHM)</h2>
                                 <div className="flex flex-wrap gap-2 w-full sm:w-auto">
                                     {mapViewMode === 'puntos' && (
                                         <button onClick={descargarMapaImagen} className="flex-1 sm:flex-none justify-center px-3 py-1.5 rounded-lg text-sm font-bold transition-colors bg-emerald-600 text-white hover:bg-emerald-500 shadow-md flex items-center gap-2">
                                             <i className="fa-solid fa-camera"></i> Foto
                                         </button>
                                     )}
-                                    <button onClick={() => setMapViewMode('puntos')} className={`flex-1 sm:flex-none justify-center px-3 py-1.5 rounded-lg text-sm font-bold transition-colors ${mapViewMode === 'puntos' ? 'bg-cyan-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>GPS</button>
-                                    <button onClick={() => setMapViewMode('colonias')} className={`flex-1 sm:flex-none justify-center px-3 py-1.5 rounded-lg text-sm font-bold transition-colors ${mapViewMode === 'colonias' ? 'bg-cyan-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>Tabla Sectores</button>
+                                    <button onClick={() => setMapViewMode('puntos')} className={`flex-1 sm:flex-none justify-center px-3 py-1.5 rounded-lg text-sm font-bold transition-colors ${mapViewMode === 'puntos' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>GPS</button>
+                                    <button onClick={() => setMapViewMode('colonias')} className={`flex-1 sm:flex-none justify-center px-3 py-1.5 rounded-lg text-sm font-bold transition-colors ${mapViewMode === 'colonias' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>Tabla Sectores</button>
                                 </div>
                             </div>
 
@@ -834,7 +834,7 @@
                                         <span className="text-[10px] text-slate-400 font-bold mb-1 border-b border-slate-700 pb-1">RIESGO (PHM)</span>
                                         <span className="flex items-center gap-2 text-xs font-medium text-white"><div className="w-3 h-3 rounded-full bg-rose-500"></div> Crítico (&gt; 50)</span>
                                         <span className="flex items-center gap-2 text-xs font-medium text-white"><div className="w-3 h-3 rounded-full bg-orange-400"></div> Alto (&gt; 20)</span>
-                                        <span className="flex items-center gap-2 text-xs font-medium text-white"><div className="w-3 h-3 rounded-full bg-cyan-600"></div> Bajo (&lt; 20)</span>
+                                        <span className="flex items-center gap-2 text-xs font-medium text-white"><div className="w-3 h-3 rounded-full bg-blue-600"></div> Bajo (&lt; 20)</span>
                                     </div>
                                     <MapaInteractivo data={mapDataWithSectorRisk} onMarkerClick={setSelectedHotspot} />
                                 </div>
@@ -860,7 +860,7 @@
                                                     <td className="p-3 text-center font-bold text-orange-400 hidden sm:table-cell">{sector.huevos}</td>
                                                     <td className="p-3 text-center font-bold text-amber-400 bg-amber-900/10">{sector.phm}</td>
                                                     <td className="p-3 text-center">
-                                                        <span className={`px-2 py-1 rounded text-[10px] sm:text-xs font-bold uppercase ${sector.riesgoNivel === 'Crítico' ? 'bg-rose-500/20 text-rose-400' : sector.riesgoNivel === 'Alto' ? 'bg-orange-500/20 text-orange-400' : 'bg-cyan-500/20 text-cyan-400'}`}>{sector.riesgoNivel}</span>
+                                                        <span className={`px-2 py-1 rounded text-[10px] sm:text-xs font-bold uppercase ${sector.riesgoNivel === 'Crítico' ? 'bg-rose-500/20 text-rose-400' : sector.riesgoNivel === 'Alto' ? 'bg-orange-500/20 text-orange-400' : 'bg-blue-500/20 text-blue-400'}`}>{sector.riesgoNivel}</span>
                                                     </td>
                                                 </tr>
                                             ))}
@@ -872,10 +872,10 @@
 
                         <div className="w-full xl:w-96 flex flex-col gap-4 shrink-0">
                         {selectedHotspot && mapViewMode === 'puntos' ? (
-                            <div className="bg-slate-900 p-6 rounded-2xl border border-cyan-500/30 shadow-[0_0_30px_rgba(6,182,212,0.1)] animate-fade-in">
+                            <div className="bg-slate-900 p-6 rounded-2xl border border-blue-500/30 shadow-[0_0_30px_rgba(59,130,246,0.1)] animate-fade-in">
                             <div className="flex items-start justify-between mb-4">
                                 <h3 className="text-xl font-bold text-white break-words">{selectedHotspot.id}</h3>
-                                <span className={`px-3 py-1 rounded-full text-xs font-black uppercase shrink-0 ${selectedHotspot.sectorRiesgo === 'Crítico' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/50' : selectedHotspot.sectorRiesgo === 'Alto' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/50' : 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/50'}`}>
+                                <span className={`px-3 py-1 rounded-full text-xs font-black uppercase shrink-0 ${selectedHotspot.sectorRiesgo === 'Crítico' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/50' : selectedHotspot.sectorRiesgo === 'Alto' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/50' : 'bg-blue-500/20 text-blue-400 border border-blue-500/50'}`}>
                                 Riesgo: {selectedHotspot.sectorRiesgo}
                                 </span>
                             </div>
@@ -922,8 +922,8 @@
         // --- SUBCOMPONENTES UI REUTILIZABLES ---
         function NavButton({ icon, label, active, onClick, disabled }) {
             return (
-                <button onClick={disabled ? null : onClick} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all duration-300 relative shrink-0 ${disabled ? 'opacity-30 cursor-not-allowed text-slate-600' : active ? 'text-cyan-400 bg-slate-800 border border-slate-700 shadow-md' : 'text-slate-400 hover:text-cyan-300 hover:bg-slate-800/50 border border-transparent'}`}>
-                    <div className={`${active ? 'drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]' : ''}`}>{icon}</div>
+                <button onClick={disabled ? null : onClick} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all duration-300 relative shrink-0 ${disabled ? 'opacity-30 cursor-not-allowed text-slate-600' : active ? 'text-blue-400 bg-slate-800 border border-slate-700 shadow-md' : 'text-slate-400 hover:text-blue-300 hover:bg-slate-800/50 border border-transparent'}`}>
+                    <div className={`${active ? 'drop-shadow-[0_0_8px_rgba(59,130,246,0.8)]' : ''}`}>{icon}</div>
                     <span className="text-sm font-semibold whitespace-nowrap">{label}</span>
                 </button>
             );
@@ -938,8 +938,8 @@
         }
 
         function IndicatorCard({ title, name, value, formula, explanation, colorTheme }) {
-            const themes = { rose: 'bg-rose-500/10 border-rose-500/30 text-rose-400 from-rose-900/40', orange: 'bg-orange-500/10 border-orange-500/30 text-orange-400 from-orange-900/40', amber: 'bg-amber-500/10 border-amber-500/30 text-amber-400 from-amber-900/40', emerald: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 from-emerald-900/40', cyan: 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400 from-cyan-900/40' };
-            const themeClass = themes[colorTheme] || themes.cyan;
+            const themes = { rose: 'bg-rose-500/10 border-rose-500/30 text-rose-400 from-rose-900/40', orange: 'bg-orange-500/10 border-orange-500/30 text-orange-400 from-orange-900/40', amber: 'bg-amber-500/10 border-amber-500/30 text-amber-400 from-amber-900/40', emerald: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 from-emerald-900/40', blue: 'bg-blue-500/10 border-blue-500/30 text-blue-400 from-blue-900/40' };
+            const themeClass = themes[colorTheme] || themes.blue;
             return (
                 <div className={`bg-slate-900 border rounded-2xl p-6 relative overflow-hidden group hover:bg-gradient-to-br ${themeClass} transition-all duration-300`}>
                 <div className="flex justify-between items-start mb-4">
@@ -955,7 +955,7 @@
         }
 
         function ActionTag({ text, type }) {
-            const styles = { danger: 'bg-rose-950/50 border-rose-800 text-rose-300', warning: 'bg-orange-950/50 border-orange-800 text-orange-300', info: 'bg-cyan-950/50 border-cyan-800 text-cyan-300', primary: 'bg-indigo-950/50 border-indigo-800 text-indigo-300' };
+            const styles = { danger: 'bg-rose-950/50 border-rose-800 text-rose-300', warning: 'bg-orange-950/50 border-orange-800 text-orange-300', info: 'bg-blue-950/50 border-blue-800 text-blue-300', primary: 'bg-indigo-950/50 border-indigo-800 text-indigo-300' };
             return (
                 <div className={`flex items-start gap-2 p-2 border rounded-lg text-xs font-medium leading-tight ${styles[type]}`}>
                 <i className="fa-solid fa-chevron-right shrink-0 mt-0.5 text-[12px]"></i> {text}
@@ -967,10 +967,10 @@
             const themes = { 
                 rose: { bgIcon: 'bg-rose-500/20 text-rose-400', badge: 'bg-rose-500/20 text-rose-400 border-rose-500/30', glow: 'bg-rose-500/10', btnHover: 'hover:bg-rose-600 hover:border-rose-500' }, 
                 orange: { bgIcon: 'bg-orange-500/20 text-orange-400', badge: 'bg-orange-500/20 text-orange-400 border-orange-500/30', glow: 'bg-orange-500/10', btnHover: 'hover:bg-orange-600 hover:border-orange-500' }, 
-                cyan: { bgIcon: 'bg-cyan-500/20 text-cyan-400', badge: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30', glow: 'bg-cyan-500/10', btnHover: 'hover:bg-cyan-600 hover:border-cyan-500' }, 
+                blue: { bgIcon: 'bg-blue-500/20 text-blue-400', badge: 'bg-blue-500/20 text-blue-400 border-blue-500/30', glow: 'bg-blue-500/10', btnHover: 'hover:bg-blue-600 hover:border-blue-500' }, 
                 indigo: { bgIcon: 'bg-indigo-500/20 text-indigo-400', badge: 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30', glow: 'bg-indigo-500/10', btnHover: 'hover:bg-indigo-600 hover:border-indigo-500' } 
             };
-            const theme = themes[colorTheme] || themes.cyan;
+            const theme = themes[colorTheme] || themes.blue;
             return (
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 relative overflow-hidden group hover:border-slate-700 transition-all">
                 <div className={`absolute -top-10 -right-10 w-32 h-32 blur-3xl rounded-full transition-all ${theme.glow}`}></div>
