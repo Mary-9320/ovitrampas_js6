@@ -200,7 +200,8 @@
                 const rows = csvText.split('\n');
                 let headerRowIndex = 0;
                 for (let i = 0; i < Math.min(10, rows.length); i++) {
-                    if (rows[i].toLowerCase().includes('ovitrampa') || rows[i].toLowerCase().includes('clave')) {
+                    const rowLower = rows[i].toLowerCase();
+                    if (rowLower.includes('ovitrampa') || rowLower.includes('clave') || rowLower.includes('lat') || rowLower.includes('posicion_x')) {
                         headerRowIndex = i;
                         break;
                     }
@@ -208,15 +209,24 @@
                 const headers = rows[headerRowIndex].split(',').map(h => h.trim().toLowerCase().replace(/["\r]/g, ''));
                 const xIdx = headers.findIndex(h => h === 'pocision_x' || h === 'posicion_x' || h === 'x' || h.includes('long'));
                 const yIdx = headers.findIndex(h => h === 'pocision_y' || h === 'posicion_y' || h === 'y' || h.includes('lat'));
-                const oviIdx = headers.findIndex(h => h.includes('ovitrampa') || h.includes('clave'));
+                
+                // CORRECCIÓN: Priorizar estrictamente la columna 'ovitrampa' para que no tome 'clave' (1.90E+16) por error.
+                let oviIdx = headers.findIndex(h => h === 'ovitrampa');
+                if (oviIdx === -1) oviIdx = headers.findIndex(h => h.includes('ovitrampa'));
+                if (oviIdx === -1) oviIdx = headers.findIndex(h => h.includes('clave'));
                 
                 const catalog = {};
                 for(let i = headerRowIndex + 1; i < rows.length; i++) {
                     const cols = rows[i].split(',');
                     if(cols.length > Math.max(xIdx, yIdx, oviIdx) && oviIdx !== -1) {
-                        const id = cols[oviIdx]?.trim().replace(/["\r]/g, '');
-                        const x = parseFloat(cols[xIdx]?.replace(/["\r]/g, ''));
-                        const y = parseFloat(cols[yIdx]?.replace(/["\r]/g, ''));
+                        const rawId = cols[oviIdx]?.trim().replace(/["\r]/g, '');
+                        // Normalización: Quitar posibles ceros a la izquierda para cruzar perfecto los IDs
+                        const id = isNaN(parseInt(rawId, 10)) ? rawId : parseInt(rawId, 10).toString();
+                        
+                        // Blindaje de coordenadas: soportar punto o coma como decimal
+                        const x = parseFloat(cols[xIdx]?.replace(/["\r]/g, '').replace(',', '.'));
+                        const y = parseFloat(cols[yIdx]?.replace(/["\r]/g, '').replace(',', '.'));
+                        
                         if(id && !isNaN(x) && !isNaN(y)) catalog[id] = { x, y };
                     }
                 }
@@ -254,7 +264,10 @@
                 for(let i = headerRowIndex + 1; i < rows.length; i++) {
                     const cols = rows[i].split(',');
                     if(oviIdx !== -1 && huevosIdx !== -1 && cols.length > Math.max(oviIdx, huevosIdx)) {
-                        const id = cols[oviIdx]?.trim().replace(/["\r]/g, '');
+                        const rawId = cols[oviIdx]?.trim().replace(/["\r]/g, '');
+                        // Misma normalización de ID en las lecturas
+                        const id = isNaN(parseInt(rawId, 10)) ? rawId : parseInt(rawId, 10).toString();
+                        
                         const huevosStr = cols[huevosIdx]?.trim().replace(/["\r]/g, '');
                         
                         if(!id || huevosStr === undefined || huevosStr === '') continue;
@@ -1081,3 +1094,4 @@
     </script>
 </body>
 </html>
+              
