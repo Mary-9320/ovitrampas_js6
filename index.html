@@ -55,6 +55,10 @@
     <div id="root"></div>
 
     <script type="text/babel">
+        // --- ENLACES DE GOOGLE SHEETS EN VIVO ---
+        const GEO_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSaICLfEhy8zhFI2eoY1hygCKY7Dcg4PPyTEPWL_1kEz-_qO3WMER0WP4xE08pUeh7kH2QK0VZ7dEEg/pub?gid=0&single=true&output=csv';
+        const DATA_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSaICLfEhy8zhFI2eoY1hygCKY7Dcg4PPyTEPWL_1kEz-_qO3WMER0WP4xE08pUeh7kH2QK0VZ7dEEg/pub?gid=1093579226&single=true&output=csv';
+
         const { useState, useEffect, useMemo, useRef } = React;
         const { ScatterChart, Scatter, ZAxis, XAxis, YAxis, Tooltip: RechartsTooltip, ResponsiveContainer, Cell, LineChart, Line, AreaChart, Area, CartesianGrid, Legend } = window.Recharts;
 
@@ -91,7 +95,7 @@
                     data.forEach(punto => {
                         if (punto.y && punto.x) {
                             const color = punto.sectorRiesgo === 'Crítico' ? '#f43f5e' : 
-                                          punto.sectorRiesgo === 'Alto' ? '#fb923c' :    
+                                          punto.sectorRiesgo === 'Alto' ? '#fb923c' :   
                                           '#0891b2';                                     
 
                             const marker = L.circleMarker([punto.y, punto.x], {
@@ -132,8 +136,13 @@
             
             const [geoCatalog, setGeoCatalog] = useState({}); 
             const [isGeoLoaded, setIsGeoLoaded] = useState(false);
-            const [isProcessing, setIsProcessing] = useState(false);
             
+            // --- ESTADOS DE SINCRONIZACIÓN Y MODO MANUAL ---
+            const [isSyncing, setIsSyncing] = useState(true);
+            const [syncMessage, setSyncMessage] = useState('Iniciando sincronización...');
+            const [syncError, setSyncError] = useState(null);
+            const [manualMode, setManualMode] = useState(false); // <--- NUEVO: MODO DE RESPALDO
+
             // HISTÓRICO DE SEMANAS
             const [historialSemanas, setHistorialSemanas] = useState({});
             const [semanaActual, setSemanaActual] = useState(null);
@@ -144,212 +153,262 @@
 
             const mapContainerRef = useRef(null);
 
+            // --- LÓGICA DE SINCRONIZACIÓN AUTOMÁTICA ---
+            const fetchGoogleSheetsData = async () => {
+                setIsSyncing(true);
+                setSyncError(null);
+                
+                try {
+                    // 1. Descargar Padrón Geográfico
+                    setSyncMessage('Descargando Padrón Geográfico...');
+                    const geoResponse = await fetch(GEO_URL);
+                    if (!geoResponse.ok) throw new Error("No se pudo acceder al archivo de Georreferenciación");
+                    const geoText = await geoResponse.text();
+                    
+                    const catalog = parseGeoCSV(geoText);
+                    setGeoCatalog(catalog);
+                    setIsGeoLoaded(true);
+
+                    // 2. Descargar Historial de Lecturas
+                    setSyncMessage('Descargando Historial de Lecturas...');
+                    const dataResponse = await fetch(DATA_URL);
+                    if (!dataResponse.ok) throw new Error("No se pudo acceder al archivo de Lecturas");
+                    const dataText = await dataResponse.text();
+                    
+                    parseReadingsCSV(dataText, catalog);
+                    
+                    setIsSyncing(false);
+                    // Cambiar a la pestaña táctica automáticamente tras 1 segundo
+                    setTimeout(() => setActiveTab('tactica'), 1000);
+
+                } catch (error) {
+                    console.error("Error sincronizando:", error);
+                    setSyncError(error.message || "Error de conexión de red.");
+                    setIsSyncing(false);
+                }
+            };
+
+            // Arrancar la sincronización al abrir la página (si no está en modo manual)
+            useEffect(() => {
+                if (!manualMode) {
+                    fetchGoogleSheetsData();
+                }
+            }, [manualMode]);
+
+            // --- PARSERS DE CSV ---
+            const parseGeoCSV = (csvText) => {
+                const rows = csvText.split('\n');
+                let headerRowIndex = 0;
+                for (let i = 0; i < Math.min(10, rows.length); i++) {
+                    if (rows[i].toLowerCase().includes('ovitrampa') || rows[i].toLowerCase().includes('clave')) {
+                        headerRowIndex = i;
+                        break;
+                    }
+                }
+                const headers = rows[headerRowIndex].split(',').map(h => h.trim().toLowerCase().replace(/["\r]/g, ''));
+                const xIdx = headers.findIndex(h => h === 'pocision_x' || h === 'posicion_x' || h === 'x' || h.includes('long'));
+                const yIdx = headers.findIndex(h => h === 'pocision_y' || h === 'posicion_y' || h === 'y' || h.includes('lat'));
+                const oviIdx = headers.findIndex(h => h.includes('ovitrampa') || h.includes('clave'));
+                
+                const catalog = {};
+                for(let i = headerRowIndex + 1; i < rows.length; i++) {
+                    const cols = rows[i].split(',');
+                    if(cols.length > Math.max(xIdx, yIdx, oviIdx) && oviIdx !== -1) {
+                        const id = cols[oviIdx]?.trim().replace(/["\r]/g, '');
+                        const x = parseFloat(cols[xIdx]?.replace(/["\r]/g, ''));
+                        const y = parseFloat(cols[yIdx]?.replace(/["\r]/g, ''));
+                        if(id && !isNaN(x) && !isNaN(y)) catalog[id] = { x, y };
+                    }
+                }
+                return catalog;
+            };
+
+            const parseReadingsCSV = (csvText, catalog) => {
+                const rows = csvText.split('\n');
+                if(rows.length <= 1) throw new Error("El archivo de Lecturas está vacío.");
+                
+                let headerRowIndex = -1;
+                for (let i = 0; i < Math.min(15, rows.length); i++) {
+                    const rowLower = rows[i].toLowerCase();
+                    if (rowLower.includes('ovitrampa') && rowLower.includes('huevecillos') && rowLower.includes('semana epidemiologica')) {
+                        headerRowIndex = i;
+                        break;
+                    }
+                }
+
+                if (headerRowIndex === -1) {
+                    throw new Error("⚠️ Formato incorrecto. Asegúrate de que el documento de lecturas tenga las columnas 'Ovitrampa', 'Huevecillos' y 'Semana Epidemiologica'.");
+                }
+
+                const headers = rows[headerRowIndex].split(',').map(h => h.trim().toLowerCase().replace(/["\r]/g, ''));
+                
+                const oviIdx = headers.findIndex(h => h === 'ovitrampa');
+                const huevosIdx = headers.findIndex(h => h === 'huevecillos');
+                const sectorIdx = headers.findIndex(h => h === 'sector');
+                const mznIdx = headers.findIndex(h => h === 'manzana');
+                const muniIdx = headers.findIndex(h => h === 'municipio');
+                const semIdx = headers.findIndex(h => h === 'semana epidemiologica');
+
+                const weeksData = {};
+
+                for(let i = headerRowIndex + 1; i < rows.length; i++) {
+                    const cols = rows[i].split(',');
+                    if(oviIdx !== -1 && huevosIdx !== -1 && cols.length > Math.max(oviIdx, huevosIdx)) {
+                        const id = cols[oviIdx]?.trim().replace(/["\r]/g, '');
+                        const huevosStr = cols[huevosIdx]?.trim().replace(/["\r]/g, '');
+                        
+                        if(!id || huevosStr === undefined || huevosStr === '') continue;
+                        
+                        const huevos = parseInt(huevosStr, 10);
+                        if(isNaN(huevos)) continue;
+                        
+                        const semanaRaw = semIdx !== -1 ? cols[semIdx]?.trim().replace(/["\r]/g, '') : 'S/N';
+                        const semana = (semanaRaw && semanaRaw !== '') ? semanaRaw : 'S/N';
+
+                        if (!weeksData[semana]) {
+                            weeksData[semana] = {
+                                mergedData: [], totalHuevos: 0, positivas: 0, leidas: 0, manzanasTracker: {}, sectoresTracker: {}
+                            };
+                        }
+
+                        const weekObj = weeksData[semana];
+                        
+                        weekObj.leidas++;
+                        if (huevos > 0) weekObj.positivas++;
+                        weekObj.totalHuevos += huevos;
+
+                        const sectorRaw = sectorIdx !== -1 ? cols[sectorIdx]?.trim().replace(/["\r]/g, '') : 'S/N';
+                        const manzanaRaw = mznIdx !== -1 ? cols[mznIdx]?.trim().replace(/["\r]/g, '') : 'S/N';
+                        const muni = muniIdx !== -1 ? cols[muniIdx]?.trim().replace(/["\r]/g, '') : 'Sector';
+                        
+                        const sector = isNaN(parseInt(sectorRaw, 10)) ? sectorRaw : parseInt(sectorRaw, 10).toString();
+                        const manzana = isNaN(parseInt(manzanaRaw, 10)) ? manzanaRaw : parseInt(manzanaRaw, 10).toString();
+
+                        const mznKey = `${sector}-${manzana}`;
+                        if (!weekObj.manzanasTracker[mznKey]) weekObj.manzanasTracker[mznKey] = { huevos: 0, positivas: 0 };
+                        weekObj.manzanasTracker[mznKey].huevos += huevos;
+                        if (huevos > 0) weekObj.manzanasTracker[mznKey].positivas++;
+
+                        const secKey = `${muni} - Sector ${sector}`;
+                        if (!weekObj.sectoresTracker[secKey]) weekObj.sectoresTracker[secKey] = { nombre: secKey, municipio: muni, sector: sector, huevos: 0, positivas: 0, leidas: 0, manzanasSet: new Set() };
+                        weekObj.sectoresTracker[secKey].leidas++;
+                        weekObj.sectoresTracker[secKey].huevos += huevos;
+                        if (huevos > 0) weekObj.sectoresTracker[secKey].positivas++;
+                        weekObj.sectoresTracker[secKey].manzanasSet.add(manzana);
+
+                        const geo = catalog[id];
+                        if (geo) {
+                            weekObj.mergedData.push({ id, municipio: muni, sector, manzana, x: geo.x, y: geo.y, huevos });
+                        }
+                    }
+                }
+
+                const newHistorial = {};
+                let maxSemana = 0;
+
+                Object.keys(weeksData).forEach(semana => {
+                    const weekObj = weeksData[semana];
+                    const manzanasRevisadas = Object.keys(weekObj.manzanasTracker).length;
+                    const manzanasPositivas = Object.values(weekObj.manzanasTracker).filter(m => m.positivas > 0).length;
+
+                    const datosSectorArray = Object.values(weekObj.sectoresTracker).map(s => {
+                        const pho = s.positivas > 0 ? (s.huevos / s.positivas).toFixed(1) : 0;
+                        const phmr = s.manzanasSet.size > 0 ? (s.huevos / s.manzanasSet.size).toFixed(1) : 0; 
+                        const riesgo = parseFloat(phmr) > 50 ? 'Crítico' : parseFloat(phmr) > 20 ? 'Alto' : 'Bajo';
+                        return { ...s, pho: parseFloat(pho), phmr: parseFloat(phmr), riesgoNivel: riesgo, manzanasUnicas: s.manzanasSet.size };
+                    }).sort((a, b) => b.phmr - a.phmr);
+
+                    const calcPHMRGlobal = manzanasRevisadas > 0 ? (weekObj.totalHuevos / manzanasRevisadas).toFixed(1) : 0;
+
+                    newHistorial[semana] = {
+                        gridData: weekObj.mergedData,
+                        statsGlobales: {
+                            ovitrampasRevisadas: weekObj.leidas,
+                            ovitrampasPositivas: weekObj.positivas,
+                            totalHuevos: weekObj.totalHuevos,
+                            manzanasRevisadas: manzanasRevisadas,
+                            manzanasPositivas: manzanasPositivas,
+                            semanaEpidemiologica: semana,
+                            phmrGlobal: parseFloat(calcPHMRGlobal)
+                        },
+                        datosPorSector: datosSectorArray
+                    };
+
+                    if (semana !== 'S/N' && parseInt(semana) > maxSemana) {
+                        maxSemana = parseInt(semana);
+                    }
+                });
+
+                setHistorialSemanas(newHistorial);
+                if (maxSemana > 0) setSemanaActual(maxSemana.toString());
+            };
+
+            // --- MANEJADORES PARA MODO MANUAL ---
+            const handleManualGeoUpload = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    try {
+                        const catalog = parseGeoCSV(evt.target.result);
+                        setGeoCatalog(catalog);
+                        setIsGeoLoaded(true);
+                    } catch(err) {
+                        alert("Error al leer Padrón: " + err.message);
+                    }
+                };
+                reader.readAsText(file);
+            };
+
+            const handleManualReadingsUpload = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                
+                setIsSyncing(true);
+                setSyncMessage("Procesando lecturas...");
+
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    try {
+                        parseReadingsCSV(evt.target.result, geoCatalog);
+                        setIsSyncing(false);
+                        setActiveTab('tactica');
+                    } catch(err) {
+                        alert("Error al leer Lecturas: " + err.message);
+                        setIsSyncing(false);
+                    }
+                };
+                reader.readAsText(file);
+                e.target.value = null; 
+            };
+
             // VARIABLES DE LA SEMANA ACTUAL
             const dataSemanaActual = semanaActual ? historialSemanas[semanaActual] : null;
             const gridData = dataSemanaActual?.gridData || [];
             
             // STATS CON NOMENCLATURA OFICIAL CENAPRECE
             const statsGlobales = dataSemanaActual?.statsGlobales || {
-                ovitrampasLeidas: 0, ovitrampasPositivas: 0, totalHuevos: 0, manzanasTrabajadas: 0, manzanasPositivas: 0, semanaEpidemiologica: 'S/N'
+                ovitrampasRevisadas: 0, ovitrampasPositivas: 0, totalHuevos: 0, manzanasRevisadas: 0, manzanasPositivas: 0, semanaEpidemiologica: 'S/N'
             };
             const datosPorSector = dataSemanaActual?.datosPorSector || [];
             const isWeeklyLoaded = Object.keys(historialSemanas).length > 0;
-            
-            // LECTURA DE PADRÓN GEOGRÁFICO
-            const handleGeoUpload = (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
-                const reader = new FileReader();
-                reader.onload = (evt) => {
-                    const rows = evt.target.result.split('\n');
-                    
-                    // Detección automática de cabecera
-                    let headerRowIndex = 0;
-                    for (let i = 0; i < Math.min(10, rows.length); i++) {
-                        if (rows[i].toLowerCase().includes('ovitrampa') || rows[i].toLowerCase().includes('clave')) {
-                            headerRowIndex = i;
-                            break;
-                        }
-                    }
 
-                    // Limpieza exhaustiva de caracteres especiales de Windows (\r) y comillas
-                    const headers = rows[headerRowIndex].split(',').map(h => h.trim().toLowerCase().replace(/["\r]/g, ''));
-                    const xIdx = headers.findIndex(h => h === 'pocision_x' || h === 'posicion_x');
-                    const yIdx = headers.findIndex(h => h === 'pocision_y' || h === 'posicion_y');
-                    const oviIdx = headers.findIndex(h => h === 'ovitrampa');
-                    
-                    const catalog = {};
-                    for(let i = headerRowIndex + 1; i < rows.length; i++) {
-                        const cols = rows[i].split(',');
-                        if(cols.length > Math.max(xIdx, yIdx, oviIdx)) {
-                            const id = cols[oviIdx]?.trim().replace(/["\r]/g, '');
-                            const x = parseFloat(cols[xIdx]?.replace(/["\r]/g, ''));
-                            const y = parseFloat(cols[yIdx]?.replace(/["\r]/g, ''));
-                            if(id && !isNaN(x) && !isNaN(y)) catalog[id] = { x, y };
-                        }
-                    }
-                    setGeoCatalog(catalog);
-                    setIsGeoLoaded(true);
-                };
-                reader.readAsText(file);
-            };
-
-            // LECTURA DE DATOS MENSUALES/SEMANALES CON PROTECCIÓN AVANZADA
-            const handleWeeklyUpload = (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
-                setIsProcessing(true);
-
-                const reader = new FileReader();
-                reader.onload = (evt) => {
-                    const rows = evt.target.result.split('\n');
-                    if(rows.length <= 1) { setIsProcessing(false); return; }
-                    
-                    // Buscar la fila de cabeceras saltando las introducciones de la plataforma (Ej. "DescargaLecturas")
-                    let headerRowIndex = -1;
-                    for (let i = 0; i < Math.min(15, rows.length); i++) {
-                        const rowLower = rows[i].toLowerCase();
-                        if (rowLower.includes('ovitrampa') && rowLower.includes('huevecillos')) {
-                            headerRowIndex = i;
-                            break;
-                        }
-                    }
-
-                    if (headerRowIndex === -1) {
-                        alert("No se pudo detectar el formato de columnas oficiales en el archivo CSV.");
-                        setIsProcessing(false);
-                        return;
-                    }
-
-                    // Limpiamos los headers de \r de Windows
-                    const headers = rows[headerRowIndex].split(',').map(h => h.trim().toLowerCase().replace(/["\r]/g, ''));
-                    
-                    const oviIdx = headers.findIndex(h => h === 'ovitrampa');
-                    const huevosIdx = headers.findIndex(h => h === 'huevecillos');
-                    const sectorIdx = headers.findIndex(h => h === 'sector');
-                    const mznIdx = headers.findIndex(h => h === 'manzana');
-                    const muniIdx = headers.findIndex(h => h === 'municipio');
-                    const semIdx = headers.findIndex(h => h === 'semana epidemiologica' || h === 'semana');
-
-                    const weeksData = {};
-
-                    for(let i = headerRowIndex + 1; i < rows.length; i++) {
-                        const cols = rows[i].split(',');
-                        if(cols.length > Math.max(oviIdx, huevosIdx)) {
-                            // Limpieza profunda por cada dato leído
-                            const id = cols[oviIdx]?.trim().replace(/["\r]/g, '');
-                            const huevosStr = cols[huevosIdx]?.trim().replace(/["\r]/g, '');
-                            
-                            if(!id || huevosStr === undefined || huevosStr === '') continue;
-                            
-                            const huevos = parseInt(huevosStr, 10);
-                            if(isNaN(huevos)) continue;
-                            
-                            const semanaRaw = cols[semIdx]?.trim().replace(/["\r]/g, '');
-                            const semana = (semIdx !== -1 && semanaRaw) ? semanaRaw : 'S/N';
-
-                            if (!weeksData[semana]) {
-                                weeksData[semana] = {
-                                    mergedData: [], totalHuevos: 0, positivas: 0, leidas: 0, manzanasTracker: {}, sectoresTracker: {}
-                                };
-                            }
-
-                            const weekObj = weeksData[semana];
-                            
-                            weekObj.leidas++;
-                            if (huevos > 0) weekObj.positivas++;
-                            weekObj.totalHuevos += huevos;
-
-                            // Limpieza de Ceros a la Izquierda (0180 -> 180, 0009 -> 9)
-                            const sectorRaw = cols[sectorIdx]?.trim().replace(/["\r]/g, '') || 'S/N';
-                            const manzanaRaw = cols[mznIdx]?.trim().replace(/["\r]/g, '') || 'S/N';
-                            const muni = cols[muniIdx]?.trim().replace(/["\r]/g, '') || 'Sector';
-                            
-                            const sector = isNaN(parseInt(sectorRaw, 10)) ? sectorRaw : parseInt(sectorRaw, 10).toString();
-                            const manzana = isNaN(parseInt(manzanaRaw, 10)) ? manzanaRaw : parseInt(manzanaRaw, 10).toString();
-
-                            const mznKey = `${sector}-${manzana}`;
-                            if (!weekObj.manzanasTracker[mznKey]) weekObj.manzanasTracker[mznKey] = { huevos: 0, positivas: 0 };
-                            weekObj.manzanasTracker[mznKey].huevos += huevos;
-                            if (huevos > 0) weekObj.manzanasTracker[mznKey].positivas++;
-
-                            const secKey = `${muni} - Sector ${sector}`;
-                            if (!weekObj.sectoresTracker[secKey]) weekObj.sectoresTracker[secKey] = { nombre: secKey, municipio: muni, sector: sector, huevos: 0, positivas: 0, leidas: 0, manzanasSet: new Set() };
-                            weekObj.sectoresTracker[secKey].leidas++;
-                            weekObj.sectoresTracker[secKey].huevos += huevos;
-                            if (huevos > 0) weekObj.sectoresTracker[secKey].positivas++;
-                            weekObj.sectoresTracker[secKey].manzanasSet.add(manzana);
-
-                            const geo = geoCatalog[id];
-                            if (geo) {
-                                weekObj.mergedData.push({ id, municipio: muni, sector, manzana, x: geo.x, y: geo.y, huevos });
-                            }
-                        }
-                    }
-
-                    const newHistorial = { ...historialSemanas };
-                    let maxSemana = semanaActual || 0;
-
-                    Object.keys(weeksData).forEach(semana => {
-                        const weekObj = weeksData[semana];
-                        const manzanasTrabajadas = Object.keys(weekObj.manzanasTracker).length;
-                        const manzanasPositivas = Object.values(weekObj.manzanasTracker).filter(m => m.positivas > 0).length;
-
-                        const datosSectorArray = Object.values(weekObj.sectoresTracker).map(s => {
-                            const pho = s.positivas > 0 ? (s.huevos / s.positivas).toFixed(1) : 0;
-                            const phm = s.manzanasSet.size > 0 ? (s.huevos / s.manzanasSet.size).toFixed(1) : 0; 
-                            const riesgo = parseFloat(phm) > 50 ? 'Crítico' : parseFloat(phm) > 20 ? 'Alto' : 'Bajo';
-                            return { ...s, pho: parseFloat(pho), phm: parseFloat(phm), riesgoNivel: riesgo, manzanasUnicas: s.manzanasSet.size };
-                        }).sort((a, b) => b.phm - a.phm);
-
-                        const calcPHMGlobal = manzanasTrabajadas > 0 ? (weekObj.totalHuevos / manzanasTrabajadas).toFixed(1) : 0;
-
-                        newHistorial[semana] = {
-                            gridData: weekObj.mergedData,
-                            statsGlobales: {
-                                ovitrampasLeidas: weekObj.leidas,
-                                ovitrampasPositivas: weekObj.positivas,
-                                totalHuevos: weekObj.totalHuevos,
-                                manzanasTrabajadas: manzanasTrabajadas,
-                                manzanasPositivas: manzanasPositivas,
-                                semanaEpidemiologica: semana,
-                                phmGlobal: parseFloat(calcPHMGlobal)
-                            },
-                            datosPorSector: datosSectorArray
-                        };
-
-                        if (semana !== 'S/N' && parseInt(semana) > parseInt(maxSemana || 0)) {
-                            maxSemana = semana;
-                        }
-                    });
-
-                    setTimeout(() => {
-                        setHistorialSemanas(newHistorial);
-                        if (maxSemana) setSemanaActual(maxSemana);
-                        setIsProcessing(false);
-                        if (activeTab === 'upload') setActiveTab('tactica'); 
-                    }, 1000);
-                };
-                reader.readAsText(file);
-                e.target.value = null; 
-            };
-
-            const calcIPO = statsGlobales.ovitrampasLeidas > 0 ? ((statsGlobales.ovitrampasPositivas / statsGlobales.ovitrampasLeidas) * 100).toFixed(1) : '0.0';
+            const calcIPO = statsGlobales.ovitrampasRevisadas > 0 ? ((statsGlobales.ovitrampasPositivas / statsGlobales.ovitrampasRevisadas) * 100).toFixed(1) : '0.0';
             const calcPHO = statsGlobales.ovitrampasPositivas > 0 ? (statsGlobales.totalHuevos / statsGlobales.ovitrampasPositivas).toFixed(1) : '0.0';
-            const calcPHM = statsGlobales.manzanasTrabajadas > 0 ? (statsGlobales.totalHuevos / statsGlobales.manzanasTrabajadas).toFixed(1) : '0.0';
+            const calcPHMR = statsGlobales.manzanasRevisadas > 0 ? (statsGlobales.totalHuevos / statsGlobales.manzanasRevisadas).toFixed(1) : '0.0';
             const calcPHMP = statsGlobales.manzanasPositivas > 0 ? (statsGlobales.totalHuevos / statsGlobales.manzanasPositivas).toFixed(1) : '0.0';
-            const calcMP = statsGlobales.manzanasTrabajadas > 0 ? ((statsGlobales.manzanasPositivas / statsGlobales.manzanasTrabajadas) * 100).toFixed(1) : '0.0';
+            const calcMP = statsGlobales.manzanasRevisadas > 0 ? ((statsGlobales.manzanasPositivas / statsGlobales.manzanasRevisadas) * 100).toFixed(1) : '0.0';
 
             const mapDataWithSectorRisk = useMemo(() => {
                 return gridData.map(punto => {
                     const sectorName = `${punto.municipio} - Sector ${punto.sector}`;
                     const sectorInfo = datosPorSector.find(s => s.nombre === sectorName);
-                    return { ...punto, sectorPhm: sectorInfo ? sectorInfo.phm : 0, sectorRiesgo: sectorInfo ? sectorInfo.riesgoNivel : 'Bajo' };
+                    return { ...punto, sectorPhmr: sectorInfo ? sectorInfo.phmr : 0, sectorRiesgo: sectorInfo ? sectorInfo.riesgoNivel : 'Bajo' };
                 });
             }, [gridData, datosPorSector]);
 
             const generarAnalisisDescriptivo = () => {
-                const ipo = parseFloat(calcIPO); const pho = parseFloat(calcPHO); const phm = parseFloat(calcPHM); const mp = parseFloat(calcMP);
+                const ipo = parseFloat(calcIPO); const pho = parseFloat(calcPHO); const phmr = parseFloat(calcPHMR); const mp = parseFloat(calcMP);
 
                 let txtTerritorial = "";
                 if (mp > 20 && ipo > 15) txtTerritorial = "Ambos porcentajes (%MP e IPO) son altos. Esto confirma que la infestación no es un problema aislado en un solo rincón, sino que el vector ya se ha dispersado por múltiples cuadras y ha logrado invadir una gran cantidad de viviendas en la zona evaluada.";
@@ -363,14 +422,14 @@
                 else txtDensidad = "El Promedio de Huevos por Ovitrampa (PHO) muestra una tasa de oviposición de leve a moderada en los puntos positivos.";
 
                 let txtRiesgo = ""; let riesgoNivelClase = "text-cyan-400"; let riesgoNivelTexto = "BAJO / CONTROLADO";
-                if (phm >= 50) {
-                    txtRiesgo = "El PHM se encuentra en niveles de ALERTA MÁXIMA. Se recomienda implementar urgente un Control de Barrido e Intervención Integral. Correlacionar inmediatamente con casos probables de dengue para justificar control químico.";
+                if (phmr >= 50) {
+                    txtRiesgo = "El PHMR se encuentra en niveles de ALERTA MÁXIMA. Se recomienda implementar urgente un Control de Barrido e Intervención Integral. Correlacionar inmediatamente con casos probables de dengue para justificar control químico.";
                     riesgoNivelClase = "text-rose-500 font-black"; riesgoNivelTexto = "CRÍTICO";
-                } else if (phm >= 20) {
-                    txtRiesgo = "El PHM evidencia un Riesgo de Transmisión ACTIVO. Se requiere priorizar Operativos de Barrido en los sectores marcados en el mapa antes de un brote epidémico.";
+                } else if (phmr >= 20) {
+                    txtRiesgo = "El PHMR evidencia un Riesgo de Transmisión ACTIVO. Se requiere priorizar Operativos de Barrido en los sectores marcados en el mapa antes de un brote epidémico.";
                     riesgoNivelClase = "text-orange-400 font-bold"; riesgoNivelTexto = "ALTO";
                 } else {
-                    txtRiesgo = "El PHM sugiere un escenario de baja probabilidad para el sostenimiento de una cadena de transmisión. Mantener Tratamientos Focalizados en donde se hayan detectado ovitrampas positivas.";
+                    txtRiesgo = "El PHMR sugiere un escenario de baja probabilidad para el sostenimiento de una cadena de transmisión. Mantener Tratamientos Focalizados en donde se hayan detectado ovitrampas positivas.";
                     riesgoNivelClase = "text-cyan-400 font-bold"; riesgoNivelTexto = "BAJO";
                 }
                 return { txtTerritorial, txtDensidad, txtRiesgo, riesgoNivelClase, riesgoNivelTexto };
@@ -395,8 +454,8 @@
                     const sectorData = weekData.datosPorSector.find(s => s.nombre === trendSector);
                     return {
                         semana: `SE ${sem}`,
-                        PHM_Global: weekData.statsGlobales.phmGlobal,
-                        PHM_Sector: sectorData ? sectorData.phm : 0
+                        PHMR_Global: weekData.statsGlobales.phmrGlobal,
+                        PHMR_Sector: sectorData ? sectorData.phmr : 0
                     };
                 });
             }, [historialSemanas, trendSector]);
@@ -404,14 +463,14 @@
             const descargarIndicadoresCSV = () => {
                 let csvContent = "data:text/csv;charset=utf-8,";
                 csvContent += "Semana,Indicador,Valor,Formula\n";
-                csvContent += `${statsGlobales.semanaEpidemiologica},% de Ovitrampas Positivas (IPO),${calcIPO}%,(Ovitrampas Positivas / Ovitrampas Leídas) X 100\n`;
-                csvContent += `${statsGlobales.semanaEpidemiologica},Promedio de Huevos por Ovitrampa (PHO),${calcPHO},(Total de Huevos / Ovitrampas Positivas)\n`;
-                csvContent += `${statsGlobales.semanaEpidemiologica},Promedio de Huevos por Manzana (PHM),${calcPHM},(Total de Huevos / Manzanas Trabajadas)\n`;
-                csvContent += `${statsGlobales.semanaEpidemiologica},Promedio de Huevos por Mzn Positiva (PHMP),${calcPHMP},(Total de Huevos / Manzanas Positivas)\n`;
-                csvContent += `${statsGlobales.semanaEpidemiologica},% de Manzanas Positivas (%MP),${calcMP}%,(Manzanas Positivas / Manzanas Trabajadas) X 100\n\n`;
-                csvContent += "Municipio,Sector,Ovitrampas Leídas,Manzanas Trabajadas,Positivas,Total Huevos,PHO Sector,PHM Sector,Nivel Riesgo (Basado en PHM)\n";
+                csvContent += `${statsGlobales.semanaEpidemiologica},Porcentaje de Ovitrampa Positiva (IPO),${calcIPO}%,(Ovitrampas Positivas / Ovitrampas Revisadas) x 100\n`;
+                csvContent += `${statsGlobales.semanaEpidemiologica},Promedio de Huevos por Ovitrampa (PHO),${calcPHO},(Total de Huevos / Número de Ovitrampas Positivas)\n`;
+                csvContent += `${statsGlobales.semanaEpidemiologica},Promedio de Huevos por Manzana (PHMR),${calcPHMR},(Total de Huevos por Manzana / Manzanas Revisadas)\n`;
+                csvContent += `${statsGlobales.semanaEpidemiologica},Promedio de Huevos por Manzanas Positivas (PHMP),${calcPHMP},(Total de Huevos por Manzana / Manzanas Positivas)\n`;
+                csvContent += `${statsGlobales.semanaEpidemiologica},Porcentaje de Manzanas Positivas (MP),${calcMP}%,(Manzanas Positivas / Manzanas Revisadas) X 100\n\n`;
+                csvContent += "Municipio,Sector,Ovitrampas Revisadas,Manzanas Revisadas,Positivas,Total Huevos,PHO Sector,PHMR Sector,Nivel Riesgo (Basado en PHMR)\n";
                 datosPorSector.forEach(s => {
-                    csvContent += `${s.municipio},${s.sector},${s.leidas},${s.manzanasUnicas},${s.positivas},${s.huevos},${s.pho},${s.phm},${s.riesgoNivel}\n`;
+                    csvContent += `${s.municipio},${s.sector},${s.leidas},${s.manzanasUnicas},${s.positivas},${s.huevos},${s.pho},${s.phmr},${s.riesgoNivel}\n`;
                 });
 
                 const encodedUri = encodeURI(csvContent);
@@ -477,13 +536,18 @@
                             <i className="fa-solid fa-bug text-cyan-400 text-xl"></i>
                         </div>
                         <div>
-                            <h1 className="text-lg font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 tracking-wider whitespace-nowrap">S.I.G.E. VECTORES</h1>
+                            <div className="flex items-center gap-2">
+                                <h1 className="text-lg font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 tracking-wider whitespace-nowrap">S.I.G.E. VECTORES</h1>
+                                <span className={`border text-[10px] px-2 py-0.5 rounded-full flex items-center gap-1 font-bold shadow-sm ${manualMode ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'}`}>
+                                    <i className={`fa-solid ${manualMode ? 'fa-folder-open' : isSyncing ? 'fa-arrows-rotate animate-spin' : 'fa-check'}`}></i> {manualMode ? 'Modo Manual' : isSyncing ? 'Sincronizando...' : 'Online'}
+                                </span>
+                            </div>
                             <p className="text-[10px] text-slate-500 uppercase font-bold hidden sm:block whitespace-nowrap">Inteligencia Epidemiológica</p>
                         </div>
                     </div>
                     
                     <div className="flex items-center gap-2 overflow-x-auto w-full no-scrollbar pb-1">
-                        <NavButton icon={<i className="fa-solid fa-cloud-arrow-up"></i>} label="Base Datos" active={activeTab === 'upload'} onClick={() => setActiveTab('upload')} />
+                        <NavButton icon={<i className="fa-solid fa-database"></i>} label="Sincronización" active={activeTab === 'upload'} onClick={() => setActiveTab('upload')} />
                         <NavButton icon={<i className="fa-solid fa-shield-halved"></i>} label="Táctica" active={activeTab === 'tactica'} onClick={() => setActiveTab('tactica')} disabled={!isWeeklyLoaded} />
                         <NavButton icon={<i className="fa-solid fa-chart-line"></i>} label="Tendencias" active={activeTab === 'tendencias'} onClick={() => setActiveTab('tendencias')} disabled={!isWeeklyLoaded} />
                         <NavButton icon={<i className="fa-solid fa-microscope"></i>} label="Análisis" active={activeTab === 'analisis'} onClick={() => setActiveTab('analisis')} disabled={!isWeeklyLoaded} />
@@ -519,7 +583,7 @@
 
                         {isWeeklyLoaded && (
                             <div className="bg-slate-900 border border-slate-800 rounded-lg px-4 py-2 flex items-center gap-4 text-sm shadow-md shrink-0 w-full md:w-auto overflow-x-auto no-scrollbar">
-                                <div className="whitespace-nowrap"><span className="text-slate-500 block text-xs">Universo</span><span className="text-cyan-400 font-bold">{statsGlobales.ovitrampasLeidas} Leídas</span></div>
+                                <div className="whitespace-nowrap"><span className="text-slate-500 block text-xs">Universo</span><span className="text-cyan-400 font-bold">{statsGlobales.ovitrampasRevisadas} Revisadas</span></div>
                                 <div className="w-px h-6 bg-slate-800 shrink-0"></div>
                                 <div className="whitespace-nowrap"><span className="text-slate-500 block text-xs">Tot. Huevecillos</span><span className="text-orange-400 font-bold">{statsGlobales.totalHuevos.toLocaleString()}</span></div>
                             </div>
@@ -528,59 +592,91 @@
 
                     <div className="relative z-10 max-w-7xl mx-auto pb-10">
                     
-                    {/* VISTA 1: SUBIDA DE DATOS Y MULTICARGA */}
+                    {/* VISTA 1: CARGA DE DATOS (AUTOMÁTICA O MANUAL) */}
                     {activeTab === 'upload' && (
-                        <div className="max-w-4xl mx-auto mt-4 animate-fade-in">
-                        <div className="bg-slate-900 p-8 rounded-3xl border border-slate-800 shadow-xl relative overflow-hidden">
-                            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-32 bg-cyan-500/10 blur-3xl rounded-full pointer-events-none"></div>
-                            
-                            <div className="text-center mb-8 relative z-10">
-                            <h2 className="text-2xl md:text-3xl font-bold text-white mb-2">Motor de Ingesta Vectorial</h2>
-                            <p className="text-slate-400 text-sm md:text-base">Sube archivos mensuales concentrados para evaluar tendencias epidemiológicas.</p>
-                            </div>
+                        <div className="max-w-4xl mx-auto mt-4 animate-fade-in flex flex-col items-center justify-center min-h-[50vh]">
+                            <div className="bg-slate-900 p-8 rounded-3xl border border-slate-800 shadow-xl text-center relative overflow-hidden w-full max-w-2xl">
+                                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-32 bg-emerald-500/10 blur-3xl rounded-full pointer-events-none"></div>
+                                
+                                {!manualMode ? (
+                                    <>
+                                        <h2 className="text-2xl font-bold text-white mb-2">Conexión Google Sheets</h2>
+                                        <p className="text-slate-400 text-sm mb-8">El sistema se está comunicando con tu base de datos en vivo.</p>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-10">
-                            <div className={`border-2 border-dashed rounded-2xl p-6 text-center transition-all duration-300 relative group
-                                ${isGeoLoaded ? 'border-emerald-500 bg-emerald-950/20' : 'border-slate-700 hover:border-cyan-400/50 hover:bg-slate-800/50'}`}>
-                                {isGeoLoaded ? (
-                                <div className="flex flex-col items-center justify-center h-full text-emerald-400">
-                                    <i className="fa-solid fa-circle-check mb-3 text-[48px]"></i>
-                                    <h3 className="font-bold text-lg">Padrón Geográfico Listo</h3>
-                                    <p className="text-xs text-emerald-500/70">{Object.keys(geoCatalog).length} coordenadas en memoria</p>
-                                </div>
+                                        {isSyncing ? (
+                                            <div className="flex flex-col items-center justify-center text-emerald-400 animate-pulse">
+                                                <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                                                <p className="font-bold">{syncMessage}</p>
+                                            </div>
+                                        ) : syncError ? (
+                                            <div className="flex flex-col items-center justify-center text-rose-400">
+                                                <i className="fa-solid fa-triangle-exclamation text-[48px] mb-4"></i>
+                                                <p className="font-bold mb-3 px-4 text-sm text-white">{syncError}</p>
+                                                <p className="text-xs text-slate-400 mb-8 px-8">Esto suele ocurrir porque el navegador bloquea la conexión si abres el archivo localmente (CORS) o porque el documento de Google Sheets está restringido en sus permisos.</p>
+                                                <div className="flex flex-wrap justify-center gap-4">
+                                                    <button onClick={fetchGoogleSheetsData} className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-white font-bold transition">Reintentar</button>
+                                                    <button onClick={() => setManualMode(true)} className="px-6 py-2.5 bg-cyan-600 hover:bg-cyan-500 rounded-xl text-white font-bold transition shadow-lg flex items-center gap-2"><i className="fa-solid fa-folder-open"></i> Pasar a Modo Manual</button>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="flex flex-col items-center justify-center text-emerald-400">
+                                                <i className="fa-solid fa-circle-check text-[48px] mb-4"></i>
+                                                <p className="font-bold mb-6">¡Datos Sincronizados!</p>
+                                                <button onClick={() => setActiveTab('tactica')} className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-white font-bold transition shadow-lg flex items-center gap-2">
+                                                    <i className="fa-solid fa-shield-halved"></i> Abrir Tablero Táctico
+                                                </button>
+                                            </div>
+                                        )}
+                                    </>
                                 ) : (
-                                <>
-                                    <input type="file" accept=".csv" onChange={handleGeoUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-50" title="Subir Coordenadas Fijas" />
-                                    <div className="flex flex-col items-center text-slate-400 pointer-events-none">
-                                    <div className="p-3 bg-slate-800 rounded-full mb-3 group-hover:bg-cyan-900/50 transition-all text-cyan-400"><i className="fa-solid fa-location-dot text-[32px]"></i></div>
-                                    <h3 className="text-lg font-bold text-white">Paso 1: Padrón de Ovitrampas</h3>
-                                    <p className="text-xs mt-2 text-slate-500 px-4">Sube el archivo de Coordenadas Fijas (Pocision_X, Pocision_Y).</p>
-                                    </div>
-                                </>
+                                    <>
+                                        <div className="flex justify-between items-center mb-6">
+                                            <h2 className="text-xl md:text-2xl font-bold text-white text-left">Carga Manual de Archivos</h2>
+                                            <button onClick={() => setManualMode(false)} className="text-xs text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 px-3 py-1.5 rounded-lg transition font-bold border border-cyan-500/20"><i className="fa-solid fa-rotate-left"></i> Volver a Online</button>
+                                        </div>
+                                        <p className="text-slate-400 text-sm text-left mb-6">Usa esta opción para subir tus archivos CSV directamente desde tu computadora si la conexión a Google falla.</p>
+                                        
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-10">
+                                            <div className={`border-2 border-dashed rounded-2xl p-6 text-center transition-all duration-300 relative group ${isGeoLoaded ? 'border-emerald-500 bg-emerald-950/20' : 'border-slate-700 hover:border-cyan-400/50 hover:bg-slate-800/50'}`}>
+                                                {isGeoLoaded ? (
+                                                <div className="flex flex-col items-center justify-center h-full text-emerald-400">
+                                                    <i className="fa-solid fa-circle-check mb-3 text-[48px]"></i>
+                                                    <h3 className="font-bold text-lg">Padrón Cargado</h3>
+                                                    <p className="text-xs text-emerald-500/70">{Object.keys(geoCatalog).length} coordenadas</p>
+                                                </div>
+                                                ) : (
+                                                <>
+                                                    <input type="file" accept=".csv" onChange={handleManualGeoUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-50" title="Subir Coordenadas Fijas" />
+                                                    <div className="flex flex-col items-center text-slate-400 pointer-events-none">
+                                                        <div className="p-3 bg-slate-800 rounded-full mb-3 group-hover:bg-cyan-900/50 transition-all text-cyan-400"><i className="fa-solid fa-location-dot text-[32px]"></i></div>
+                                                        <h3 className="text-lg font-bold text-white">1. Padrón Ovitrampas</h3>
+                                                        <p className="text-xs mt-2 text-slate-500 px-4">Sube el CSV con las coordenadas fijas.</p>
+                                                    </div>
+                                                </>
+                                                )}
+                                            </div>
+
+                                            <div className={`border-2 border-dashed rounded-2xl p-6 text-center transition-all duration-300 relative group ${!isGeoLoaded ? 'opacity-50 grayscale pointer-events-none border-slate-800' : isSyncing ? 'border-cyan-500 bg-cyan-950/30' : 'border-cyan-700 hover:border-cyan-400 hover:bg-slate-800/50 cursor-pointer'}`}>
+                                                {isSyncing ? (
+                                                <div className="flex flex-col items-center justify-center h-full text-cyan-400 animate-pulse">
+                                                    <div className="w-10 h-10 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mb-3"></div>
+                                                    <p className="font-bold">Procesando...</p>
+                                                </div>
+                                                ) : (
+                                                <>
+                                                    <input type="file" accept=".csv" onChange={handleManualReadingsUpload} disabled={!isGeoLoaded} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-50" title="Subir Lecturas" />
+                                                    <div className="flex flex-col items-center pointer-events-none">
+                                                        <div className="p-3 bg-slate-800 rounded-full mb-3 group-hover:bg-cyan-900/50 transition-all text-cyan-400"><i className="fa-solid fa-file-csv text-[32px]"></i></div>
+                                                        <h3 className="text-lg font-bold text-white">2. Subir Lecturas</h3>
+                                                        <p className="text-xs mt-2 text-slate-400 px-4">Sube el CSV del historial epidemiológico.</p>
+                                                    </div>
+                                                </>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </>
                                 )}
                             </div>
-
-                            <div className={`border-2 border-dashed rounded-2xl p-6 text-center transition-all duration-300 relative group
-                                ${!isGeoLoaded ? 'opacity-50 grayscale pointer-events-none border-slate-800' : isProcessing ? 'border-cyan-500 bg-cyan-950/30' : 'border-cyan-700 hover:border-cyan-400 hover:bg-slate-800/50 cursor-pointer'}`}>
-                                {isProcessing ? (
-                                <div className="flex flex-col items-center justify-center h-full text-cyan-400 animate-pulse">
-                                    <div className="w-10 h-10 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mb-3"></div>
-                                    <p className="font-bold">Procesando Concentrado...</p>
-                                </div>
-                                ) : (
-                                <>
-                                    <input type="file" accept=".csv" onChange={handleWeeklyUpload} disabled={!isGeoLoaded} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-50" title="Subir Lecturas" />
-                                    <div className="flex flex-col items-center pointer-events-none">
-                                        <div className="p-3 bg-slate-800 rounded-full mb-3 group-hover:bg-cyan-900/50 transition-all text-cyan-400"><i className="fa-solid fa-file-csv text-[32px]"></i></div>
-                                        <h3 className="text-lg font-bold text-white">Paso 2: Subir Lecturas</h3>
-                                        <p className="text-xs mt-2 text-slate-400 px-4 mb-2">Sube archivos con 1 o varias semanas juntas. La IA las separará automáticamente.</p>
-                                        {isWeeklyLoaded && <span className="bg-indigo-600/30 text-indigo-400 text-[10px] font-black uppercase px-3 py-1 rounded border border-indigo-500/50">+ Subir más datos</span>}
-                                    </div>
-                                </>
-                                )}
-                            </div>
-                            </div>
-                        </div>
                         </div>
                     )}
 
@@ -591,7 +687,7 @@
                             <div className="p-4 bg-rose-500/20 rounded-full shrink-0"><i className="fa-solid fa-shield-virus text-rose-400 animate-pulse text-[40px]"></i></div>
                             <div>
                             <h2 className="text-xl md:text-2xl font-bold text-white mb-1">Centro de Mando y Despliegue de Vectores</h2>
-                            <p className="text-rose-200 text-xs md:text-sm">Las rutas se generan basándose en el nivel de PHM de la SE {statsGlobales.semanaEpidemiologica}, siguiendo los lineamientos de control (Focalizado, Barrido e Integral). Haz clic en los botones para descargar las coordenadas GPS.</p>
+                            <p className="text-rose-200 text-xs md:text-sm">Las rutas se generan basándose en el nivel de PHMR de la SE {statsGlobales.semanaEpidemiologica}, siguiendo los lineamientos de control (Focalizado, Barrido e Integral). Haz clic en los botones para descargar las coordenadas GPS.</p>
                             </div>
                         </div>
 
@@ -627,17 +723,17 @@
                         </div>
                     )}
 
-                    {/* VISTA 3: TENDENCIAS (GRÁFICA PHM GLOBAL Y COMPARATIVA) */}
+                    {/* VISTA 3: TENDENCIAS (GRÁFICA PHMR GLOBAL Y COMPARATIVA) */}
                     {activeTab === 'tendencias' && (
                         <div className="space-y-6 animate-fade-in pb-8">
                             
-                            {/* GRÁFICA 1: PHM GLOBAL DE TODAS LAS OVITRAMPAS */}
+                            {/* GRÁFICA 1: PHMR GLOBAL DE TODAS LAS OVITRAMPAS */}
                             <div className="bg-slate-900 rounded-2xl border border-slate-800 p-6 shadow-lg">
                                 <div className="flex items-center gap-3 mb-6">
                                     <div className="p-2 bg-cyan-500/20 rounded-lg text-cyan-400"><i className="fa-solid fa-earth-americas text-xl"></i></div>
                                     <div>
-                                        <h3 className="text-xl font-bold text-white">Tendencia del PHM Global</h3>
-                                        <p className="text-sm text-slate-400">Riesgo promedio de la ciudad entera (Universo Total: {statsGlobales.ovitrampasLeidas} Ovitrampas Leídas).</p>
+                                        <h3 className="text-xl font-bold text-white">Tendencia del PHMR Global</h3>
+                                        <p className="text-sm text-slate-400">Riesgo promedio de la ciudad entera (Universo Total: {statsGlobales.ovitrampasRevisadas} Ovitrampas Revisadas).</p>
                                     </div>
                                 </div>
 
@@ -651,7 +747,7 @@
                                         <ResponsiveContainer width="100%" height="100%">
                                             <AreaChart data={chartTrendData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
                                                 <defs>
-                                                    <linearGradient id="colorPHMGlobal" x1="0" y1="0" x2="0" y2="1">
+                                                    <linearGradient id="colorPHMRGlobal" x1="0" y1="0" x2="0" y2="1">
                                                         <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.8}/>
                                                         <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.1}/>
                                                     </linearGradient>
@@ -663,12 +759,12 @@
                                                 
                                                 <Area 
                                                     type="monotone" 
-                                                    dataKey="PHM_Global" 
-                                                    name="PHM Global Ciudad" 
+                                                    dataKey="PHMR_Global" 
+                                                    name="PHMR Global Ciudad" 
                                                     stroke="#06b6d4" 
                                                     strokeWidth={4} 
                                                     fillOpacity={1} 
-                                                    fill="url(#colorPHMGlobal)"
+                                                    fill="url(#colorPHMRGlobal)"
                                                     activeDot={{r: 8, stroke: '#020617', strokeWidth: 2}}
                                                 />
                                             </AreaChart>
@@ -709,8 +805,8 @@
                                                 <YAxis stroke="#64748b" tick={{fill: '#94a3b8', fontSize: 12}} axisLine={false} tickLine={false} />
                                                 <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f8fafc', borderRadius: '0.75rem' }} />
                                                 <Legend verticalAlign="top" height={36} wrapperStyle={{ paddingBottom: '10px' }}/>
-                                                <Line type="monotone" dataKey="PHM_Global" name="Promedio Global" stroke="#64748b" strokeWidth={2} strokeDasharray="5 5" dot={false} />
-                                                <Line type="monotone" dataKey="PHM_Sector" name={`Riesgo: ${trendSector}`} stroke="#f43f5e" strokeWidth={4} dot={{r: 6, strokeWidth: 2}} activeDot={{r: 8}} />
+                                                <Line type="monotone" dataKey="PHMR_Global" name="Promedio Global" stroke="#64748b" strokeWidth={2} strokeDasharray="5 5" dot={false} />
+                                                <Line type="monotone" dataKey="PHMR_Sector" name={`Riesgo: ${trendSector}`} stroke="#f43f5e" strokeWidth={4} dot={{r: 6, strokeWidth: 2}} activeDot={{r: 8}} />
                                             </LineChart>
                                         </ResponsiveContainer>
                                     </div>
@@ -730,7 +826,7 @@
                                         <p className="text-slate-400 text-sm">Correlación de indicadores de la <strong>SE {statsGlobales.semanaEpidemiologica}</strong>.</p>
                                     </div>
                                     <div className="bg-slate-950/50 px-4 py-2 rounded-xl border border-slate-800 text-center w-full md:w-auto">
-                                        <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Riesgo Global (PHM)</p>
+                                        <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Riesgo Global (PHMR)</p>
                                         <p className={`text-xl ${analisisTextos.riesgoNivelClase}`}>{analisisTextos.riesgoNivelTexto}</p>
                                     </div>
                                 </div>
@@ -768,9 +864,9 @@
                                         <div className="p-4 bg-rose-950/50 rounded-xl text-rose-400 border border-rose-900/50 shrink-0"><i className="fa-solid fa-triangle-exclamation text-2xl"></i></div>
                                         <div>
                                             <h3 className="text-lg font-bold text-white mb-1">3. Síntesis del Riesgo Total</h3>
-                                            <div className="flex gap-4 mb-3"><span className="text-xs sm:text-sm font-bold bg-rose-950/50 px-2 py-1 rounded text-rose-300 border border-rose-800">PHM General: {calcPHM}</span></div>
+                                            <div className="flex gap-4 mb-3"><span className="text-xs sm:text-sm font-bold bg-rose-950/50 px-2 py-1 rounded text-rose-300 border border-rose-800">PHMR General: {calcPHMR}</span></div>
                                             <p className="text-slate-300 leading-relaxed text-sm">
-                                                La convergencia de abundancia y extensión se engloba en el PHM. La conclusión operativa es: <br/><br/>
+                                                La convergencia de abundancia y extensión se engloba en el PHMR. La conclusión operativa es: <br/><br/>
                                                 <strong className="text-white">{analisisTextos.txtRiesgo}</strong>
                                             </p>
                                         </div>
@@ -797,12 +893,12 @@
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {/* Ajuste de fórmulas exactas según la imagen oficial y corrección "Revisadas" */}
-                            <IndicatorCard title="IPO" name="Índice Positividad de Ovitrampas" value={`${calcIPO}%`} formula="(Ovitrampas Positivas / Ovitrampas Leídas) X 100" explanation="Dispersión territorial del vector." colorTheme="rose" />
-                            <IndicatorCard title="PHO" name="Promedio Huevos por Ovitrampa" value={calcPHO} formula="(Total de Huevos / Ovitrampas Positivas)" explanation="Densidad reproductiva de hembras grávidas." colorTheme="orange" />
-                            <IndicatorCard title="PHM" name="Promedio Huevos por Manzana" value={calcPHM} formula="(Total de Huevos / Manzanas Trabajadas)" explanation="Riesgo Relativo de Transmisión global en la ciudad." colorTheme="amber" />
-                            <IndicatorCard title="PHMP" name="Promedio Huevos / Mzn Positiva" value={calcPHMP} formula="(Total de Huevos / Manzanas Positivas)" explanation="Intensidad de reproducción concentrada en los focos." colorTheme="emerald" />
-                            <IndicatorCard title="%MP" name="Porcentaje Manzanas Positivas" value={`${calcMP}%`} formula="(Manzanas Positivas / Manzanas Trabajadas) X 100" explanation="Extensión de riesgo geográfico." colorTheme="cyan" />
+                            {/* Ajuste de fórmulas exactas basadas rigurosamente en la imagen solicitada */}
+                            <IndicatorCard title="IPO" name="Porcentaje de Ovitrampa Positiva" value={`${calcIPO}%`} formula="(Ovitrampas Positivas / Ovitrampas Revisadas) x 100" explanation="Dispersión territorial del vector." colorTheme="rose" />
+                            <IndicatorCard title="PHO" name="Promedio de Huevos por Ovitrampa" value={calcPHO} formula="(Total de Huevos / Número de Ovitrampas Positivas)" explanation="Densidad reproductiva de hembras grávidas." colorTheme="orange" />
+                            <IndicatorCard title="PHMR" name="Promedio de Huevos por Manzana" value={calcPHMR} formula="(Total de Huevos por Manzana / Manzanas Revisadas)" explanation="Riesgo Relativo de Transmisión global en la ciudad." colorTheme="amber" />
+                            <IndicatorCard title="PHMP" name="Promedio de Huevos por Manzanas Positivas" value={calcPHMP} formula="(Total de Huevos por Manzana / Manzanas Positivas)" explanation="Intensidad de reproducción concentrada en los focos." colorTheme="emerald" />
+                            <IndicatorCard title="%MP" name="Porcentaje de Manzanas Positivas" value={`${calcMP}%`} formula="(Manzanas Positivas / Manzanas Revisadas) X 100" explanation="Extensión de riesgo geográfico." colorTheme="cyan" />
                         </div>
                         </div>
                     )}
@@ -813,7 +909,7 @@
                         
                         <div className="flex-1 bg-slate-900/50 p-4 rounded-2xl border border-slate-800 backdrop-blur-sm flex flex-col h-[500px] xl:h-full relative">
                             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
-                                <h2 className="text-xl font-bold text-white flex items-center gap-2"><i className="fa-solid fa-earth-americas text-cyan-400"></i> Cartografía Táctica (PHM)</h2>
+                                <h2 className="text-xl font-bold text-white flex items-center gap-2"><i className="fa-solid fa-earth-americas text-cyan-400"></i> Cartografía Táctica (PHMR)</h2>
                                 <div className="flex flex-wrap gap-2 w-full sm:w-auto">
                                     {mapViewMode === 'puntos' && (
                                         <button onClick={descargarMapaImagen} className="flex-1 sm:flex-none justify-center px-3 py-1.5 rounded-lg text-sm font-bold transition-colors bg-emerald-600 text-white hover:bg-emerald-500 shadow-md flex items-center gap-2">
@@ -831,7 +927,7 @@
                                         <h3 className="text-white font-black text-lg drop-shadow-md bg-slate-900/60 px-3 py-1 rounded-lg backdrop-blur-sm border border-slate-700">Riesgo Sectorial SE {statsGlobales.semanaEpidemiologica}</h3>
                                     </div>
                                     <div className="absolute bottom-4 right-4 flex flex-col gap-2 bg-slate-900/90 p-3 rounded-lg border border-slate-700 backdrop-blur-md z-[400] shadow-xl">
-                                        <span className="text-[10px] text-slate-400 font-bold mb-1 border-b border-slate-700 pb-1">RIESGO (PHM)</span>
+                                        <span className="text-[10px] text-slate-400 font-bold mb-1 border-b border-slate-700 pb-1">RIESGO (PHMR)</span>
                                         <span className="flex items-center gap-2 text-xs font-medium text-white"><div className="w-3 h-3 rounded-full bg-rose-500"></div> Crítico (&gt; 50)</span>
                                         <span className="flex items-center gap-2 text-xs font-medium text-white"><div className="w-3 h-3 rounded-full bg-orange-400"></div> Alto (&gt; 20)</span>
                                         <span className="flex items-center gap-2 text-xs font-medium text-white"><div className="w-3 h-3 rounded-full bg-cyan-600"></div> Bajo (&lt; 20)</span>
@@ -844,10 +940,10 @@
                                         <thead>
                                             <tr className="border-b border-slate-700 text-slate-400 text-xs sm:text-sm sticky top-0 bg-slate-900 shadow-md">
                                                 <th className="p-3 font-semibold">Sector / Colonia</th>
-                                                <th className="p-3 font-semibold text-center hidden sm:table-cell">Ovitrampas Leídas</th>
+                                                <th className="p-3 font-semibold text-center hidden sm:table-cell">Ovitrampas Revisadas</th>
                                                 <th className="p-3 font-semibold text-center text-rose-400">Positivas</th>
                                                 <th className="p-3 font-semibold text-center text-orange-400 hidden sm:table-cell">Huevos</th>
-                                                <th className="p-3 font-semibold text-center text-amber-400 bg-amber-900/20">PHM Sector</th>
+                                                <th className="p-3 font-semibold text-center text-amber-400 bg-amber-900/20">PHMR Sector</th>
                                                 <th className="p-3 font-semibold text-center">Nivel</th>
                                             </tr>
                                         </thead>
@@ -858,7 +954,7 @@
                                                     <td className="p-3 text-center text-slate-300 hidden sm:table-cell">{sector.leidas}</td>
                                                     <td className="p-3 text-center font-bold text-rose-400">{sector.positivas}</td>
                                                     <td className="p-3 text-center font-bold text-orange-400 hidden sm:table-cell">{sector.huevos}</td>
-                                                    <td className="p-3 text-center font-bold text-amber-400 bg-amber-900/10">{sector.phm}</td>
+                                                    <td className="p-3 text-center font-bold text-amber-400 bg-amber-900/10">{sector.phmr}</td>
                                                     <td className="p-3 text-center">
                                                         <span className={`px-2 py-1 rounded text-[10px] sm:text-xs font-bold uppercase ${sector.riesgoNivel === 'Crítico' ? 'bg-rose-500/20 text-rose-400' : sector.riesgoNivel === 'Alto' ? 'bg-orange-500/20 text-orange-400' : 'bg-cyan-500/20 text-cyan-400'}`}>{sector.riesgoNivel}</span>
                                                     </td>
@@ -882,7 +978,7 @@
                             <p className="text-slate-400 text-sm mb-6 flex items-center gap-2"><i className="fa-solid fa-location-dot"></i> S:{selectedHotspot.sector} | M:{selectedHotspot.manzana}</p>
                             <div className="grid grid-cols-2 gap-4 mb-6">
                                 <StatBox label="Huevos Trampa" value={selectedHotspot.huevos} />
-                                <StatBox label="PHM Sectorial" value={selectedHotspot.sectorPhm} isAlert={selectedHotspot.sectorRiesgo === 'Crítico'} />
+                                <StatBox label="PHMR Sectorial" value={selectedHotspot.sectorPhmr} isAlert={selectedHotspot.sectorRiesgo === 'Crítico'} />
                             </div>
                             <div className="border-t border-slate-800 pt-4">
                                 <h4 className="text-sm text-slate-400 mb-3 flex items-center gap-2"><i className="fa-solid fa-bolt text-amber-400 text-[16px]"></i> Estrategia Recomendada</h4>
@@ -943,11 +1039,11 @@
             return (
                 <div className={`bg-slate-900 border rounded-2xl p-6 relative overflow-hidden group hover:bg-gradient-to-br ${themeClass} transition-all duration-300`}>
                 <div className="flex justify-between items-start mb-4">
-                    <div><h3 className="text-2xl font-black text-white">{title}</h3><p className="text-xs font-bold uppercase tracking-wider opacity-70 mt-1">{name}</p></div>
+                    <div><h3 className="text-2xl font-black text-white">{title}</h3><p className="text-[10px] sm:text-xs font-bold uppercase tracking-wider opacity-70 mt-1">{name}</p></div>
                     <div className="text-3xl font-black drop-shadow-md">{value}</div>
                 </div>
                 <div className="mb-4 bg-slate-950/50 p-3 rounded-lg border border-slate-800 flex items-center gap-3">
-                    <i className="fa-solid fa-calculator opacity-50 shrink-0 text-[18px]"></i><span className="text-xs font-mono text-slate-300 break-words">{formula}</span>
+                    <i className="fa-solid fa-calculator opacity-50 shrink-0 text-[18px]"></i><span className="text-[10px] sm:text-xs font-mono text-slate-300 break-words">{formula}</span>
                 </div>
                 <div className="flex items-start gap-2 text-sm text-slate-400"><i className="fa-solid fa-circle-info shrink-0 mt-0.5 text-[16px]"></i><p className="leading-relaxed">{explanation}</p></div>
                 </div>
