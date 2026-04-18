@@ -49,6 +49,28 @@
         .leaflet-popup-content-wrapper { background-color: #0f172a; color: #e2e8f0; border: 1px solid #334155; border-radius: 0.75rem; }
         .leaflet-popup-tip { background-color: #0f172a; border-bottom: 1px solid #334155; border-right: 1px solid #334155; }
         .leaflet-container { background: #020617; outline: 0; }
+
+        /* --- ESTILOS DE HOTSPOTS RADIALES --- */
+        .hotspot-marker {
+            border-radius: 50%;
+            pointer-events: none; 
+        }
+        .hotspot-crítico {
+            background: radial-gradient(circle, rgba(244,63,94,1) 0%, rgba(244,63,94,0.6) 40%, rgba(244,63,94,0) 70%);
+            box-shadow: 0 0 20px rgba(244,63,94,0.5);
+        }
+        .hotspot-alto {
+            background: radial-gradient(circle, rgba(251,146,60,1) 0%, rgba(251,146,60,0.6) 40%, rgba(251,146,60,0) 70%);
+            box-shadow: 0 0 15px rgba(251,146,60,0.4);
+        }
+        .hotspot-bajo {
+            background: radial-gradient(circle, rgba(8,145,178,1) 0%, rgba(8,145,178,0.6) 40%, rgba(8,145,178,0) 70%);
+            box-shadow: 0 0 10px rgba(8,145,178,0.3);
+        }
+        .leaflet-div-icon {
+            background: transparent;
+            border: none;
+        }
     </style>
 </head>
 <body>
@@ -58,12 +80,13 @@
         // --- ENLACES DE GOOGLE SHEETS EN VIVO ---
         const GEO_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSaICLfEhy8zhFI2eoY1hygCKY7Dcg4PPyTEPWL_1kEz-_qO3WMER0WP4xE08pUeh7kH2QK0VZ7dEEg/pub?gid=0&single=true&output=csv';
         const DATA_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSaICLfEhy8zhFI2eoY1hygCKY7Dcg4PPyTEPWL_1kEz-_qO3WMER0WP4xE08pUeh7kH2QK0VZ7dEEg/pub?gid=1093579226&single=true&output=csv';
+        const HECTARES_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSaICLfEhy8zhFI2eoY1hygCKY7Dcg4PPyTEPWL_1kEz-_qO3WMER0WP4xE08pUeh7kH2QK0VZ7dEEg/pub?gid=1074577602&single=true&output=csv';
 
         const { useState, useEffect, useMemo, useRef } = React;
         const { ScatterChart, Scatter, ZAxis, XAxis, YAxis, Tooltip: RechartsTooltip, ResponsiveContainer, Cell, LineChart, Line, AreaChart, Area, CartesianGrid, Legend } = window.Recharts;
 
         // --- COMPONENTE DEL MAPA REAL (LEAFLET) ---
-        function MapaInteractivo({ data, onMarkerClick, mapStyle }) {
+        function MapaInteractivo({ data, onMarkerClick, mapStyle, isFullscreen, maxHuevos }) {
             const mapRef = useRef(null);
             const mapInstance = useRef(null);
             const tileLayerInstance = useRef(null);
@@ -73,9 +96,18 @@
                     mapInstance.current = L.map(mapRef.current, {
                         zoomControl: true,
                         attributionControl: false 
-                    }).setView([25.3, -100.0], 12);
+                    }).setView([25.68, -100.18], 13); // Centrado general inicial
                 }
             }, []);
+
+            // Actualizar tamaño de Leaflet cuando cambia a pantalla completa
+            useEffect(() => {
+                if (mapInstance.current) {
+                    setTimeout(() => {
+                        mapInstance.current.invalidateSize();
+                    }, 300);
+                }
+            }, [isFullscreen]);
 
             useEffect(() => {
                 if (!mapInstance.current) return;
@@ -96,10 +128,21 @@
                 }).addTo(mapInstance.current);
             }, [mapStyle]);
 
+            // Función generadora de escala de colores tipo Heatmap DINÁMICO
+            const getColorForEggs = (huevos, maxLimit) => {
+                if (huevos === 0) return '#00d4ff'; // Cyan / Celeste
+                const ratio = huevos / maxLimit;
+                if (ratio <= 0.2) return '#00e676'; // Verde Claro
+                if (ratio <= 0.4) return '#76ff03'; // Verde Lima
+                if (ratio <= 0.6) return '#ffea00'; // Amarillo
+                if (ratio <= 0.8) return '#ff9100'; // Naranja
+                return '#ff1744'; // Rojo (Crítico)
+            };
+
             useEffect(() => {
                 if (mapInstance.current) {
                     mapInstance.current.eachLayer((layer) => {
-                        if (layer instanceof L.CircleMarker) {
+                        if (layer instanceof L.Marker || layer instanceof L.CircleMarker) {
                             mapInstance.current.removeLayer(layer);
                         }
                     });
@@ -110,24 +153,28 @@
                     
                     data.forEach(punto => {
                         if (punto.y && punto.x) {
-                            const color = punto.sectorRiesgo === 'Crítico' ? '#f43f5e' : 
-                                          punto.sectorRiesgo === 'Alto' ? '#fb923c' :   
-                                          '#0891b2';                                     
+                            const riskClass = punto.sectorRiesgo.toLowerCase();
+                            
+                            // Tamaño y color DINÁMICOS basados en el máximo de la semana
+                            const markerColor = getColorForEggs(punto.huevos, maxHuevos);
+                            // Radio base 5px, crece hasta 35px máximo dependiendo de qué tan cerca está del récord de la semana
+                            const markerRadius = punto.huevos === 0 ? 5 : Math.min(35, 6 + ((punto.huevos / maxHuevos) * 25));
 
-                            const marker = L.circleMarker([punto.y, punto.x], {
-                                radius: 6,
-                                fillColor: color,
-                                color: color,
-                                weight: 1,
-                                opacity: 1,
-                                fillOpacity: 0.8
+                            const marker = L.marker([punto.y, punto.x], {
+                                icon: L.divIcon({
+                                    className: `hotspot-marker hotspot-${riskClass}`,
+                                    iconSize: [markerRadius * 2, markerRadius * 2],
+                                    iconAnchor: [markerRadius, markerRadius]
+                                })
                             }).addTo(mapInstance.current);
+
+                            const colorHex = punto.sectorRiesgo === 'Crítico' ? '#f43f5e' : punto.sectorRiesgo === 'Alto' ? '#fb923c' : '#0891b2';
 
                             const popupContent = `
                                 <div style="font-family: sans-serif; min-width: 150px;">
-                                    <p style="font-weight: bold; color: #22d3ee; margin: 0 0 4px 0; border-bottom: 1px solid #334155; padding-bottom: 4px;">${punto.id}</p>
-                                    <p style="font-size: 11px; margin: 0 0 2px 0;">S: ${punto.sector} | M: ${punto.manzana}</p>
-                                    <p style="font-size: 11px; margin: 0 0 4px 0; color: ${color}; font-weight: bold;">Riesgo Sector: ${punto.sectorRiesgo}</p>
+                                    <p style="font-weight: bold; color: #22d3ee; margin: 0 0 4px 0; border-bottom: 1px solid #334155; padding-bottom: 4px;">Ovitrampa: ${punto.id}</p>
+                                    <p style="font-size: 11px; margin: 0 0 2px 0;">S: ${punto.sector} | M: ${punto.manzana} ${punto.hectareas ? `| Ha: ${punto.hectareas}` : ''}</p>
+                                    <p style="font-size: 11px; margin: 0 0 4px 0; color: ${colorHex}; font-weight: bold;">Riesgo Sector: ${punto.sectorRiesgo}</p>
                                     <p style="font-size: 12px; margin: 0;">Huevos Trampa: <b>${punto.huevos}</b></p>
                                 </div>
                             `;
@@ -141,9 +188,9 @@
                         mapInstance.current.fitBounds(bounds, { padding: [30, 30] });
                     }
                 }
-            }, [data]);
+            }, [data, maxHuevos]);
 
-            return <div ref={mapRef} style={{ width: '100%', height: '100%', borderRadius: '0.75rem', zIndex: 1 }}></div>;
+            return <div ref={mapRef} style={{ width: '100%', height: '100%', borderRadius: isFullscreen ? '0' : '0.75rem', zIndex: 1 }}></div>;
         }
 
         // --- SISTEMA PRINCIPAL ---
@@ -151,17 +198,19 @@
             const [activeTab, setActiveTab] = useState('upload'); 
             
             const [geoCatalog, setGeoCatalog] = useState({}); 
+            const [hectareasCatalog, setHectareasCatalog] = useState({}); // NUEVO: Catálogo de Hectáreas
             const [isGeoLoaded, setIsGeoLoaded] = useState(false);
             
             // --- ESTADOS DE SINCRONIZACIÓN Y MODO MANUAL ---
             const [isSyncing, setIsSyncing] = useState(true);
             const [syncMessage, setSyncMessage] = useState('Iniciando sincronización...');
             const [syncError, setSyncError] = useState(null);
-            const [manualMode, setManualMode] = useState(false); // <--- NUEVO: MODO DE RESPALDO
+            const [manualMode, setManualMode] = useState(false);
 
             // --- ESTADOS DEL MAPA Y FILTROS TÁCTICOS ---
             const [mapStyle, setMapStyle] = useState('oscuro');
             const [riskFilter, setRiskFilter] = useState('Todos');
+            const [isFullscreen, setIsFullscreen] = useState(false); // PANTALLA COMPLETA
 
             // HISTÓRICO DE SEMANAS
             const [historialSemanas, setHistorialSemanas] = useState({});
@@ -179,7 +228,18 @@
                 setSyncError(null);
                 
                 try {
-                    // 1. Descargar Padrón Geográfico
+                    // 1. Descargar Hectáreas (Nuevo)
+                    setSyncMessage('Descargando Hectáreas por Manzana...');
+                    try {
+                        const haResponse = await fetch(HECTARES_URL);
+                        if (haResponse.ok) {
+                            const haText = await haResponse.text();
+                            const parsedHa = parseHectaresCSV(haText);
+                            setHectareasCatalog(parsedHa);
+                        }
+                    } catch(e) { console.warn("No se pudo cargar hectáreas, continuando sin ellas...", e); }
+
+                    // 2. Descargar Padrón Geográfico
                     setSyncMessage('Descargando Padrón Geográfico...');
                     const geoResponse = await fetch(GEO_URL);
                     if (!geoResponse.ok) throw new Error("No se pudo acceder al archivo de Georreferenciación");
@@ -189,7 +249,7 @@
                     setGeoCatalog(catalog);
                     setIsGeoLoaded(true);
 
-                    // 2. Descargar Historial de Lecturas
+                    // 3. Descargar Historial de Lecturas
                     setSyncMessage('Descargando Historial de Lecturas...');
                     const dataResponse = await fetch(DATA_URL);
                     if (!dataResponse.ok) throw new Error("No se pudo acceder al archivo de Lecturas");
@@ -198,7 +258,6 @@
                     parseReadingsCSV(dataText, catalog);
                     
                     setIsSyncing(false);
-                    // Cambiar a la pestaña táctica automáticamente tras 1 segundo
                     setTimeout(() => setActiveTab('tactica'), 1000);
 
                 } catch (error) {
@@ -208,7 +267,6 @@
                 }
             };
 
-            // Arrancar la sincronización al abrir la página (si no está en modo manual)
             useEffect(() => {
                 if (!manualMode) {
                     fetchGoogleSheetsData();
@@ -216,6 +274,45 @@
             }, [manualMode]);
 
             // --- PARSERS DE CSV ---
+            const parseHectaresCSV = (csvText) => {
+                const rows = csvText.split('\n');
+                if(rows.length <= 1) return {};
+                
+                let headerRowIndex = 0;
+                for(let i=0; i<Math.min(5, rows.length); i++){
+                    const rowLower = rows[i].toLowerCase();
+                    if(rowLower.includes('sector') && rowLower.includes('manzana')) {
+                        headerRowIndex = i; break;
+                    }
+                }
+                
+                const headers = rows[headerRowIndex].split(',').map(h => h.trim().toLowerCase().replace(/["\r]/g, ''));
+                const secIdx = headers.findIndex(h => h.includes('sector'));
+                const mznIdx = headers.findIndex(h => h.includes('manzana') || h.includes('mzn'));
+                const haIdx = headers.findIndex(h => h.includes('hectarea') || h.includes('hectárea') || h.includes('ha') || h.includes('superficie'));
+                
+                const catalog = {};
+                if (secIdx !== -1 && mznIdx !== -1 && haIdx !== -1) {
+                    for(let i = headerRowIndex + 1; i < rows.length; i++) {
+                        const cols = rows[i].split(',');
+                        if(cols.length > Math.max(secIdx, mznIdx, haIdx)) {
+                            const sectorRaw = cols[secIdx]?.trim().replace(/["\r]/g, '');
+                            const manzanaRaw = cols[mznIdx]?.trim().replace(/["\r]/g, '');
+                            const haRaw = cols[haIdx]?.trim().replace(/["\r]/g, '');
+                            
+                            const sector = isNaN(parseInt(sectorRaw, 10)) ? sectorRaw : parseInt(sectorRaw, 10).toString();
+                            const manzana = isNaN(parseInt(manzanaRaw, 10)) ? manzanaRaw : parseInt(manzanaRaw, 10).toString();
+                            const ha = parseFloat(haRaw);
+                            
+                            if(sector && manzana && !isNaN(ha)) {
+                                catalog[`${sector}-${manzana}`] = ha;
+                            }
+                        }
+                    }
+                }
+                return catalog;
+            };
+
             const parseGeoCSV = (csvText) => {
                 const rows = csvText.split('\n');
                 let headerRowIndex = 0;
@@ -230,7 +327,6 @@
                 const xIdx = headers.findIndex(h => h === 'pocision_x' || h === 'posicion_x' || h === 'x' || h.includes('long'));
                 const yIdx = headers.findIndex(h => h === 'pocision_y' || h === 'posicion_y' || h === 'y' || h.includes('lat'));
                 
-                // CORRECCIÓN: Priorizar estrictamente la columna 'ovitrampa' para que no tome 'clave' (1.90E+16) por error.
                 let oviIdx = headers.findIndex(h => h === 'ovitrampa');
                 if (oviIdx === -1) oviIdx = headers.findIndex(h => h.includes('ovitrampa'));
                 if (oviIdx === -1) oviIdx = headers.findIndex(h => h.includes('clave'));
@@ -240,10 +336,7 @@
                     const cols = rows[i].split(',');
                     if(cols.length > Math.max(xIdx, yIdx, oviIdx) && oviIdx !== -1) {
                         const rawId = cols[oviIdx]?.trim().replace(/["\r]/g, '');
-                        // Normalización: Quitar posibles ceros a la izquierda para cruzar perfecto los IDs
                         const id = isNaN(parseInt(rawId, 10)) ? rawId : parseInt(rawId, 10).toString();
-                        
-                        // Blindaje de coordenadas: soportar punto o coma como decimal
                         const x = parseFloat(cols[xIdx]?.replace(/["\r]/g, '').replace(',', '.'));
                         const y = parseFloat(cols[yIdx]?.replace(/["\r]/g, '').replace(',', '.'));
                         
@@ -285,9 +378,7 @@
                     const cols = rows[i].split(',');
                     if(oviIdx !== -1 && huevosIdx !== -1 && cols.length > Math.max(oviIdx, huevosIdx)) {
                         const rawId = cols[oviIdx]?.trim().replace(/["\r]/g, '');
-                        // Misma normalización de ID en las lecturas
                         const id = isNaN(parseInt(rawId, 10)) ? rawId : parseInt(rawId, 10).toString();
-                        
                         const huevosStr = cols[huevosIdx]?.trim().replace(/["\r]/g, '');
                         
                         if(!id || huevosStr === undefined || huevosStr === '') continue;
@@ -348,7 +439,14 @@
                         const pho = s.positivas > 0 ? (s.huevos / s.positivas).toFixed(1) : 0;
                         const phmr = s.manzanasSet.size > 0 ? (s.huevos / s.manzanasSet.size).toFixed(1) : 0; 
                         const riesgo = parseFloat(phmr) > 50 ? 'Crítico' : parseFloat(phmr) > 20 ? 'Alto' : 'Bajo';
-                        return { ...s, pho: parseFloat(pho), phmr: parseFloat(phmr), riesgoNivel: riesgo, manzanasUnicas: s.manzanasSet.size };
+                        
+                        // Extraer el TOP 3 de Manzanas más altas de este sector
+                        const topManzanas = Array.from(s.manzanasSet).map(mzn => {
+                            const mznKey = `${s.sector}-${mzn}`;
+                            return { manzana: mzn, huevos: weekObj.manzanasTracker[mznKey].huevos };
+                        }).sort((a,b) => b.huevos - a.huevos).slice(0, 3); 
+
+                        return { ...s, pho: parseFloat(pho), phmr: parseFloat(phmr), riesgoNivel: riesgo, manzanasUnicas: s.manzanasSet.size, topManzanas };
                     }).sort((a, b) => b.phmr - a.phmr);
 
                     const calcPHMRGlobal = manzanasRevisadas > 0 ? (weekObj.totalHuevos / manzanasRevisadas).toFixed(1) : 0;
@@ -376,7 +474,6 @@
                 if (maxSemana > 0) setSemanaActual(maxSemana.toString());
             };
 
-            // --- MANEJADORES PARA MODO MANUAL ---
             const handleManualGeoUpload = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
@@ -415,16 +512,18 @@
                 e.target.value = null; 
             };
 
-            // VARIABLES DE LA SEMANA ACTUAL
             const dataSemanaActual = semanaActual ? historialSemanas[semanaActual] : null;
             const gridData = dataSemanaActual?.gridData || [];
-            
-            // STATS CON NOMENCLATURA OFICIAL CENAPRECE
-            const statsGlobales = dataSemanaActual?.statsGlobales || {
-                ovitrampasRevisadas: 0, ovitrampasPositivas: 0, totalHuevos: 0, manzanasRevisadas: 0, manzanasPositivas: 0, semanaEpidemiologica: 'S/N'
-            };
+            const statsGlobales = dataSemanaActual?.statsGlobales || { ovitrampasRevisadas: 0, ovitrampasPositivas: 0, totalHuevos: 0, manzanasRevisadas: 0, manzanasPositivas: 0, semanaEpidemiologica: 'S/N' };
             const datosPorSector = dataSemanaActual?.datosPorSector || [];
             const isWeeklyLoaded = Object.keys(historialSemanas).length > 0;
+
+            // --- LÓGICA DE ESCALA DINÁMICA DE HUEVOS PARA MAPA DE CALOR ---
+            const maxHuevosSemana = useMemo(() => {
+                if (!gridData || gridData.length === 0) return 250;
+                const max = Math.max(...gridData.map(p => p.huevos));
+                return max > 0 ? max : 250; // Previene divisiones por cero
+            }, [gridData]);
 
             const calcIPO = statsGlobales.ovitrampasRevisadas > 0 ? ((statsGlobales.ovitrampasPositivas / statsGlobales.ovitrampasRevisadas) * 100).toFixed(1) : '0.0';
             const calcPHO = statsGlobales.ovitrampasPositivas > 0 ? (statsGlobales.totalHuevos / statsGlobales.ovitrampasPositivas).toFixed(1) : '0.0';
@@ -436,54 +535,18 @@
                 let data = gridData.map(punto => {
                     const sectorName = `${punto.municipio} - Sector ${punto.sector}`;
                     const sectorInfo = datosPorSector.find(s => s.nombre === sectorName);
-                    return { ...punto, sectorPhmr: sectorInfo ? sectorInfo.phmr : 0, sectorRiesgo: sectorInfo ? sectorInfo.riesgoNivel : 'Bajo' };
+                    // Asignación de Hectáreas
+                    const haKey = `${punto.sector}-${punto.manzana}`;
+                    const hectareas = hectareasCatalog[haKey] || null;
+                    return { ...punto, sectorPhmr: sectorInfo ? sectorInfo.phmr : 0, sectorRiesgo: sectorInfo ? sectorInfo.riesgoNivel : 'Bajo', hectareas };
                 });
                 
+                // Aplicar Filtro Crítico de Hotspots
                 if (riskFilter !== 'Todos') {
                     data = data.filter(p => p.sectorRiesgo === riskFilter);
                 }
                 return data;
-            }, [gridData, datosPorSector, riskFilter]);
-
-            const generarAnalisisDescriptivo = () => {
-                const ipo = parseFloat(calcIPO); const pho = parseFloat(calcPHO); const phmr = parseFloat(calcPHMR); const mp = parseFloat(calcMP);
-
-                let txtTerritorial = "";
-                if (mp > 20 && ipo > 15) txtTerritorial = "Ambos porcentajes (%MP e IPO) son altos. Esto confirma que la infestación no es un problema aislado en un solo rincón, sino que el vector ya se ha dispersado por múltiples cuadras y ha logrado invadir una gran cantidad de viviendas en la zona evaluada.";
-                else if (mp > 20) txtTerritorial = "El Porcentaje de Manzanas Positivas (%MP) indica una dispersión amplia a lo largo de las cuadras, aunque la invasión al interior de las viviendas (IPO) se mantiene moderada o focalizada.";
-                else if (ipo > 15) txtTerritorial = "Aunque el vector no ha abarcado un número extenso de manzanas, las viviendas dentro de los polígonos afectados tienen una alta tasa de positividad (IPO).";
-                else txtTerritorial = "Tanto el IPO como el %MP se encuentran en niveles controlados. La infestación se mantiene en áreas focalizadas sin una dispersión habitacional generalizada.";
-
-                let txtDensidad = "";
-                if (pho > 40 && ipo > 15) txtDensidad = "Se detecta un PHO alto concurrente con un IPO elevado. Esto significa que la plaga no solo está extendida geográficamente, sino que en cada punto infestado existe una concentración masiva de mosquitos hembra reproduciéndose.";
-                else if (pho > 40) txtDensidad = "A pesar de una menor dispersión territorial, los focos que dieron positivo registran un PHO alarmante, indicando una concentración masiva de oviposición en sitios específicos (alta productividad focal).";
-                else txtDensidad = "El Promedio de Huevos por Ovitrampa (PHO) muestra una tasa de oviposición de leve a moderada en los puntos positivos.";
-
-                let txtRiesgo = ""; let riesgoNivelClase = "text-cyan-400"; let riesgoNivelTexto = "BAJO / CONTROLADO";
-                if (phmr >= 50) {
-                    txtRiesgo = "El PHMR se encuentra en niveles de ALERTA MÁXIMA. Se recomienda implementar urgente un Control de Barrido e Intervención Integral. Correlacionar inmediatamente con casos probables de dengue para justificar control químico.";
-                    riesgoNivelClase = "text-rose-500 font-black"; riesgoNivelTexto = "CRÍTICO";
-                } else if (phmr >= 20) {
-                    txtRiesgo = "El PHMR evidencia un Riesgo de Transmisión ACTIVO. Se requiere priorizar Operativos de Barrido en los sectores marcados en el mapa antes de un brote epidémico.";
-                    riesgoNivelClase = "text-orange-400 font-bold"; riesgoNivelTexto = "ALTO";
-                } else {
-                    txtRiesgo = "El PHMR sugiere un escenario de baja probabilidad para el sostenimiento de una cadena de transmisión. Mantener Tratamientos Focalizados en donde se hayan detectado ovitrampas positivas.";
-                    riesgoNivelClase = "text-cyan-400 font-bold"; riesgoNivelTexto = "BAJO";
-                }
-                return { txtTerritorial, txtDensidad, txtRiesgo, riesgoNivelClase, riesgoNivelTexto };
-            };
-            const analisisTextos = generarAnalisisDescriptivo();
-
-            // PREPARACIÓN DE DATOS PARA PESTAÑA "TENDENCIAS"
-            const allSectorsList = useMemo(() => {
-                const set = new Set();
-                Object.values(historialSemanas).forEach(week => week.datosPorSector.forEach(s => set.add(s.nombre)));
-                return Array.from(set).sort();
-            }, [historialSemanas]);
-
-            useEffect(() => {
-                if(allSectorsList.length > 0 && !trendSector) setTrendSector(allSectorsList[0]);
-            }, [allSectorsList]);
+            }, [gridData, datosPorSector, riskFilter, hectareasCatalog]);
 
             const chartTrendData = useMemo(() => {
                 const semanasOrdenadas = Object.keys(historialSemanas).filter(k => k !== 'S/N').sort((a,b) => parseInt(a) - parseInt(b));
@@ -498,33 +561,21 @@
                 });
             }, [historialSemanas, trendSector]);
 
-            const descargarIndicadoresCSV = () => {
-                let csvContent = "data:text/csv;charset=utf-8,";
-                csvContent += "Semana,Indicador,Valor,Formula\n";
-                csvContent += `${statsGlobales.semanaEpidemiologica},Porcentaje de Ovitrampa Positiva (IPO),${calcIPO}%,(Ovitrampas Positivas / Ovitrampas Revisadas) x 100\n`;
-                csvContent += `${statsGlobales.semanaEpidemiologica},Promedio de Huevos por Ovitrampa (PHO),${calcPHO},(Total de Huevos / Número de Ovitrampas Positivas)\n`;
-                csvContent += `${statsGlobales.semanaEpidemiologica},Promedio de Huevos por Manzana (PHMR),${calcPHMR},(Total de Huevos por Manzana / Manzanas Revisadas)\n`;
-                csvContent += `${statsGlobales.semanaEpidemiologica},Promedio de Huevos por Manzanas Positivas (PHMP),${calcPHMP},(Total de Huevos por Manzana / Manzanas Positivas)\n`;
-                csvContent += `${statsGlobales.semanaEpidemiologica},Porcentaje de Manzanas Positivas (MP),${calcMP}%,(Manzanas Positivas / Manzanas Revisadas) X 100\n\n`;
-                csvContent += "Municipio,Sector,Ovitrampas Revisadas,Manzanas Revisadas,Positivas,Total Huevos,PHO Sector,PHMR Sector,Nivel Riesgo (Basado en PHMR)\n";
-                datosPorSector.forEach(s => {
-                    csvContent += `${s.municipio},${s.sector},${s.leidas},${s.manzanasUnicas},${s.positivas},${s.huevos},${s.pho},${s.phmr},${s.riesgoNivel}\n`;
-                });
-
-                const encodedUri = encodeURI(csvContent);
-                const link = document.createElement("a");
-                link.setAttribute("href", encodedUri);
-                link.setAttribute("download", `Indicadores_Vectores_SE${statsGlobales.semanaEpidemiologica}.csv`);
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-            };
-
             const descargarMapaImagen = async () => {
                 if (mapContainerRef.current) {
                     try {
+                        // FIX FOTOGRAFÍA: Centrar offset de ventana y forzar scroll top a 0 para que no salga movido en html2canvas
                         const canvas = await html2canvas(mapContainerRef.current, {
-                            useCORS: true, allowTaint: true, backgroundColor: '#020617', scale: 2 
+                            useCORS: true, 
+                            allowTaint: true, 
+                            backgroundColor: '#020617', 
+                            scale: 2,
+                            x: 0,
+                            y: 0,
+                            scrollX: 0,
+                            scrollY: 0,
+                            windowWidth: document.documentElement.offsetWidth,
+                            windowHeight: document.documentElement.offsetHeight
                         });
                         const link = document.createElement("a");
                         link.href = canvas.toDataURL("image/png");
@@ -536,10 +587,7 @@
 
             const descargarAccionTactica = (tipoAccion, nivelesRiesgo, filename, soloPositivas) => {
                 let puntosAfectados = mapDataWithSectorRisk.filter(p => nivelesRiesgo.includes(p.sectorRiesgo));
-
-                if (soloPositivas) {
-                    puntosAfectados = puntosAfectados.filter(p => p.huevos > 0);
-                }
+                if (soloPositivas) puntosAfectados = puntosAfectados.filter(p => p.huevos > 0);
 
                 if (puntosAfectados.length === 0) {
                     const motivo = soloPositivas ? 'positivas' : 'para el nivel de riesgo seleccionado';
@@ -549,10 +597,10 @@
 
                 let csvContent = "data:text/csv;charset=utf-8,";
                 csvContent += `ORDEN DE TRABAJO: ${tipoAccion} - SE ${statsGlobales.semanaEpidemiologica}\n\n`;
-                csvContent += "Ovitrampa,Municipio,Sector,Manzana,Latitud,Longitud,Huevos,Nivel Riesgo Sector\n";
+                csvContent += "Ovitrampa,Municipio,Sector,Manzana,Hectareas,Latitud,Longitud,Huevos,Nivel Riesgo Sector\n";
 
                 puntosAfectados.forEach(p => {
-                    csvContent += `${p.id},${p.municipio},${p.sector},${p.manzana},${p.y},${p.x},${p.huevos},${p.sectorRiesgo}\n`;
+                    csvContent += `${p.id},${p.municipio},${p.sector},${p.manzana},${p.hectareas || 'N/A'},${p.y},${p.x},${p.huevos},${p.sectorRiesgo}\n`;
                 });
 
                 const encodedUri = encodeURI(csvContent);
@@ -564,46 +612,53 @@
                 document.body.removeChild(link);
             };
 
+            // Clases dinámicas para Fullscreen
+            const mainContainerClasses = isFullscreen 
+                ? "fixed inset-0 z-[9999] bg-slate-950 p-2 sm:p-4 flex flex-col" 
+                : "flex-1 bg-slate-900/50 p-4 rounded-2xl border border-slate-800 backdrop-blur-sm flex flex-col h-[500px] xl:h-full relative";
+
             return (
                 <div className="h-screen w-full bg-slate-950 text-slate-200 font-sans flex flex-col selection:bg-cyan-500 selection:text-white overflow-hidden">
                 
-                {/* --- BARRA DE NAVEGACIÓN SUPERIOR --- */}
-                <nav className="w-full bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 py-3 z-50 shrink-0 shadow-lg">
-                    <div className="flex items-center gap-3 shrink-0 mr-6">
-                        <div className="p-2 bg-cyan-500/10 rounded-lg border border-cyan-500/20">
-                            <i className="fa-solid fa-bug text-cyan-400 text-xl"></i>
-                        </div>
-                        <div>
-                            <div className="flex items-center gap-2">
-                                <h1 className="text-lg font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 tracking-wider whitespace-nowrap">S.I.G.E. VECTORES</h1>
-                                <span className={`border text-[10px] px-2 py-0.5 rounded-full flex items-center gap-1 font-bold shadow-sm ${manualMode ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'}`}>
-                                    <i className={`fa-solid ${manualMode ? 'fa-folder-open' : isSyncing ? 'fa-arrows-rotate animate-spin' : 'fa-check'}`}></i> {manualMode ? 'Modo Manual' : isSyncing ? 'Sincronizando...' : 'Online'}
-                                </span>
+                {/* --- BARRA DE NAVEGACIÓN --- */}
+                {!isFullscreen && (
+                    <nav className="w-full bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 py-3 z-50 shrink-0 shadow-lg">
+                        <div className="flex items-center gap-3 shrink-0 mr-6">
+                            <div className="p-2 bg-cyan-500/10 rounded-lg border border-cyan-500/20">
+                                <i className="fa-solid fa-bug text-cyan-400 text-xl"></i>
                             </div>
-                            <p className="text-[10px] text-slate-500 uppercase font-bold hidden sm:block whitespace-nowrap">Inteligencia Epidemiológica</p>
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <h1 className="text-lg font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 tracking-wider whitespace-nowrap">S.I.G.E. VECTORES</h1>
+                                    <span className={`border text-[10px] px-2 py-0.5 rounded-full flex items-center gap-1 font-bold shadow-sm ${manualMode ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'}`}>
+                                        <i className={`fa-solid ${manualMode ? 'fa-folder-open' : isSyncing ? 'fa-arrows-rotate animate-spin' : 'fa-check'}`}></i> {manualMode ? 'Modo Manual' : isSyncing ? 'Sincronizando...' : 'Online'}
+                                    </span>
+                                </div>
+                                <p className="text-[10px] text-slate-500 uppercase font-bold hidden sm:block whitespace-nowrap">Inteligencia Epidemiológica</p>
+                            </div>
                         </div>
-                    </div>
-                    
-                    <div className="flex items-center gap-2 overflow-x-auto w-full no-scrollbar pb-1">
-                        <NavButton icon={<i className="fa-solid fa-database"></i>} label="Sincronización" active={activeTab === 'upload'} onClick={() => setActiveTab('upload')} />
-                        <NavButton icon={<i className="fa-solid fa-shield-halved"></i>} label="Táctica" active={activeTab === 'tactica'} onClick={() => setActiveTab('tactica')} disabled={!isWeeklyLoaded} />
-                        <NavButton icon={<i className="fa-solid fa-chart-line"></i>} label="Tendencias" active={activeTab === 'tendencias'} onClick={() => setActiveTab('tendencias')} disabled={!isWeeklyLoaded} />
-                        <NavButton icon={<i className="fa-solid fa-microscope"></i>} label="Análisis" active={activeTab === 'analisis'} onClick={() => setActiveTab('analisis')} disabled={!isWeeklyLoaded} />
-                        <NavButton icon={<i className="fa-solid fa-calculator"></i>} label="Métricas" active={activeTab === 'metricas'} onClick={() => setActiveTab('metricas')} disabled={!isWeeklyLoaded} />
-                        <NavButton icon={<i className="fa-solid fa-earth-americas"></i>} label="Geomapa" active={activeTab === 'radar'} onClick={() => setActiveTab('radar')} disabled={!isWeeklyLoaded} />
-                    </div>
-                </nav>
+                        
+                        <div className="flex items-center gap-2 overflow-x-auto w-full no-scrollbar pb-1">
+                            <NavButton icon={<i className="fa-solid fa-database"></i>} label="Sincronización" active={activeTab === 'upload'} onClick={() => setActiveTab('upload')} />
+                            <NavButton icon={<i className="fa-solid fa-shield-halved"></i>} label="Táctica" active={activeTab === 'tactica'} onClick={() => setActiveTab('tactica')} disabled={!isWeeklyLoaded} />
+                            <NavButton icon={<i className="fa-solid fa-chart-line"></i>} label="Tendencias" active={activeTab === 'tendencias'} onClick={() => setActiveTab('tendencias')} disabled={!isWeeklyLoaded} />
+                            <NavButton icon={<i className="fa-solid fa-calculator"></i>} label="Métricas" active={activeTab === 'metricas'} onClick={() => setActiveTab('metricas')} disabled={!isWeeklyLoaded} />
+                            <NavButton icon={<i className="fa-solid fa-earth-americas"></i>} label="Geomapa" active={activeTab === 'radar'} onClick={() => setActiveTab('radar')} disabled={!isWeeklyLoaded} />
+                        </div>
+                    </nav>
+                )}
 
                 <main className="flex-1 overflow-y-auto p-4 md:p-6 relative z-0">
-                    <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px] pointer-events-none"></div>
+                    {!isFullscreen && (
+                        <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px] pointer-events-none"></div>
+                    )}
 
-                    <header className="mb-6 relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4 max-w-7xl mx-auto">
-                        <div className="flex flex-wrap items-center gap-3">
-                            <div className="text-slate-400 text-sm font-medium flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg shadow-sm whitespace-nowrap">
-                                <i className="fa-solid fa-layer-group text-cyan-400"></i> {Object.keys(historialSemanas).filter(k=>k!=='S/N').length} Semanas
-                            </div>
-                            
-                            {isWeeklyLoaded && (
+                    {!isFullscreen && isWeeklyLoaded && (
+                        <header className="mb-6 relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4 max-w-7xl mx-auto">
+                            <div className="flex flex-wrap items-center gap-3">
+                                <div className="text-slate-400 text-sm font-medium flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg shadow-sm whitespace-nowrap">
+                                    <i className="fa-solid fa-layer-group text-cyan-400"></i> {Object.keys(historialSemanas).filter(k=>k!=='S/N').length} Semanas
+                                </div>
                                 <div className="flex items-center gap-2 bg-indigo-900/30 border border-indigo-500/30 px-3 py-1.5 rounded-lg">
                                     <span className="text-xs text-indigo-300 font-bold uppercase whitespace-nowrap">Analizando:</span>
                                     <select 
@@ -616,22 +671,19 @@
                                         ))}
                                     </select>
                                 </div>
-                            )}
-                        </div>
-
-                        {isWeeklyLoaded && (
+                            </div>
                             <div className="bg-slate-900 border border-slate-800 rounded-lg px-4 py-2 flex items-center gap-4 text-sm shadow-md shrink-0 w-full md:w-auto overflow-x-auto no-scrollbar">
                                 <div className="whitespace-nowrap"><span className="text-slate-500 block text-xs">Universo</span><span className="text-cyan-400 font-bold">{statsGlobales.ovitrampasRevisadas} Revisadas</span></div>
                                 <div className="w-px h-6 bg-slate-800 shrink-0"></div>
                                 <div className="whitespace-nowrap"><span className="text-slate-500 block text-xs">Tot. Huevecillos</span><span className="text-orange-400 font-bold">{statsGlobales.totalHuevos.toLocaleString()}</span></div>
                             </div>
-                        )}
-                    </header>
+                        </header>
+                    )}
 
-                    <div className="relative z-10 max-w-7xl mx-auto pb-10">
+                    <div className={`relative z-10 mx-auto pb-10 ${isFullscreen ? 'w-full h-full max-w-none pb-0' : 'max-w-7xl'}`}>
                     
-                    {/* VISTA 1: CARGA DE DATOS (AUTOMÁTICA O MANUAL) */}
-                    {activeTab === 'upload' && (
+                    {/* VISTAS EXCLUIDAS DEL FULLSCREEN (SOLO CARGAN SI NO ES FULLSCREEN) */}
+                    {!isFullscreen && activeTab === 'upload' && (
                         <div className="max-w-4xl mx-auto mt-4 animate-fade-in flex flex-col items-center justify-center min-h-[50vh]">
                             <div className="bg-slate-900 p-8 rounded-3xl border border-slate-800 shadow-xl text-center relative overflow-hidden w-full max-w-2xl">
                                 <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-32 bg-emerald-500/10 blur-3xl rounded-full pointer-events-none"></div>
@@ -650,7 +702,6 @@
                                             <div className="flex flex-col items-center justify-center text-rose-400">
                                                 <i className="fa-solid fa-triangle-exclamation text-[48px] mb-4"></i>
                                                 <p className="font-bold mb-3 px-4 text-sm text-white">{syncError}</p>
-                                                <p className="text-xs text-slate-400 mb-8 px-8">Esto suele ocurrir porque el navegador bloquea la conexión si abres el archivo localmente (CORS) o porque el documento de Google Sheets está restringido en sus permisos.</p>
                                                 <div className="flex flex-wrap justify-center gap-4">
                                                     <button onClick={fetchGoogleSheetsData} className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-white font-bold transition">Reintentar</button>
                                                     <button onClick={() => setManualMode(true)} className="px-6 py-2.5 bg-cyan-600 hover:bg-cyan-500 rounded-xl text-white font-bold transition shadow-lg flex items-center gap-2"><i className="fa-solid fa-folder-open"></i> Pasar a Modo Manual</button>
@@ -660,8 +711,8 @@
                                             <div className="flex flex-col items-center justify-center text-emerald-400">
                                                 <i className="fa-solid fa-circle-check text-[48px] mb-4"></i>
                                                 <p className="font-bold mb-6">¡Datos Sincronizados!</p>
-                                                <button onClick={() => setActiveTab('tactica')} className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-white font-bold transition shadow-lg flex items-center gap-2">
-                                                    <i className="fa-solid fa-shield-halved"></i> Abrir Tablero Táctico
+                                                <button onClick={() => setActiveTab('radar')} className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-white font-bold transition shadow-lg flex items-center gap-2">
+                                                    <i className="fa-solid fa-earth-americas"></i> Abrir Geomapa
                                                 </button>
                                             </div>
                                         )}
@@ -672,7 +723,6 @@
                                             <h2 className="text-xl md:text-2xl font-bold text-white text-left">Carga Manual de Archivos</h2>
                                             <button onClick={() => setManualMode(false)} className="text-xs text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 px-3 py-1.5 rounded-lg transition font-bold border border-cyan-500/20"><i className="fa-solid fa-rotate-left"></i> Volver a Online</button>
                                         </div>
-                                        <p className="text-slate-400 text-sm text-left mb-6">Usa esta opción para subir tus archivos CSV directamente desde tu computadora si la conexión a Google falla.</p>
                                         
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-10">
                                             <div className={`border-2 border-dashed rounded-2xl p-6 text-center transition-all duration-300 relative group ${isGeoLoaded ? 'border-emerald-500 bg-emerald-950/20' : 'border-slate-700 hover:border-cyan-400/50 hover:bg-slate-800/50'}`}>
@@ -688,7 +738,6 @@
                                                     <div className="flex flex-col items-center text-slate-400 pointer-events-none">
                                                         <div className="p-3 bg-slate-800 rounded-full mb-3 group-hover:bg-cyan-900/50 transition-all text-cyan-400"><i className="fa-solid fa-location-dot text-[32px]"></i></div>
                                                         <h3 className="text-lg font-bold text-white">1. Padrón Ovitrampas</h3>
-                                                        <p className="text-xs mt-2 text-slate-500 px-4">Sube el CSV con las coordenadas fijas.</p>
                                                     </div>
                                                 </>
                                                 )}
@@ -698,7 +747,6 @@
                                                 {isSyncing ? (
                                                 <div className="flex flex-col items-center justify-center h-full text-cyan-400 animate-pulse">
                                                     <div className="w-10 h-10 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mb-3"></div>
-                                                    <p className="font-bold">Procesando...</p>
                                                 </div>
                                                 ) : (
                                                 <>
@@ -706,7 +754,6 @@
                                                     <div className="flex flex-col items-center pointer-events-none">
                                                         <div className="p-3 bg-slate-800 rounded-full mb-3 group-hover:bg-cyan-900/50 transition-all text-cyan-400"><i className="fa-solid fa-file-csv text-[32px]"></i></div>
                                                         <h3 className="text-lg font-bold text-white">2. Subir Lecturas</h3>
-                                                        <p className="text-xs mt-2 text-slate-400 px-4">Sube el CSV del historial epidemiológico.</p>
                                                     </div>
                                                 </>
                                                 )}
@@ -718,244 +765,74 @@
                         </div>
                     )}
 
-                    {/* VISTA 2: PANEL TÁCTICO OFICIAL (FOCALIZADO, BARRIDO, INTEGRAL) */}
-                    {activeTab === 'tactica' && (
+                    {!isFullscreen && activeTab === 'tactica' && (
                         <div className="space-y-6 animate-fade-in pb-8">
                         <div className="bg-gradient-to-r from-rose-900/50 to-slate-900 p-6 rounded-2xl border border-rose-500/30 flex flex-col md:flex-row items-start md:items-center gap-6">
                             <div className="p-4 bg-rose-500/20 rounded-full shrink-0"><i className="fa-solid fa-shield-virus text-rose-400 animate-pulse text-[40px]"></i></div>
                             <div>
                             <h2 className="text-xl md:text-2xl font-bold text-white mb-1">Centro de Mando y Despliegue de Vectores</h2>
-                            <p className="text-rose-200 text-xs md:text-sm">Las rutas se generan basándose en el nivel de PHMR de la SE {statsGlobales.semanaEpidemiologica}, siguiendo los lineamientos de control (Focalizado, Barrido e Integral). Haz clic en los botones para descargar las coordenadas GPS.</p>
+                            <p className="text-rose-200 text-xs md:text-sm">Las rutas se generan basándose en el nivel de PHMR de la SE {statsGlobales.semanaEpidemiologica}. Haz clic en los botones para descargar las coordenadas GPS.</p>
                             </div>
                         </div>
 
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                            <TacticalCard 
-                                title="Tratamiento Focalizado" 
-                                priority="Sectores de Riesgo Bajo" 
-                                target="Exclusivo en Manzanas Positivas" 
-                                icon={<i className="fa-solid fa-bullseye text-[28px]"></i>} 
-                                colorTheme="cyan" 
-                                action="Ruta Focalizada (CSV)" 
-                                onClick={() => descargarAccionTactica('TRATAMIENTO FOCALIZADO', ['Bajo'], 'Rutas_Focalizadas', true)} 
-                            />
-                            <TacticalCard 
-                                title="Operativo de Barrido" 
-                                priority="Riesgo Alto (Dispersión)" 
-                                target="100% de Manzanas del Sector" 
-                                icon={<i className="fa-solid fa-route text-[28px]"></i>} 
-                                colorTheme="orange" 
-                                action="Rutas de Barrido (CSV)" 
-                                onClick={() => descargarAccionTactica('OPERATIVO DE BARRIDO', ['Alto'], 'Rutas_Barrido', false)} 
-                            />
-                            <TacticalCard 
-                                title="Intervención Integral" 
-                                priority="Riesgo Crítico (Brote inminente)" 
-                                target="Cobertura Total (Físico/Químico)" 
-                                icon={<i className="fa-solid fa-users-viewfinder text-[28px]"></i>} 
-                                colorTheme="rose" 
-                                action="Despliegue Integral (CSV)" 
-                                onClick={() => descargarAccionTactica('INTERVENCION INTEGRAL', ['Crítico'], 'Despliegue_Integral', false)} 
-                            />
+                            <TacticalCard title="Tratamiento Focalizado" priority="Sectores de Riesgo Bajo" target="Exclusivo en Manzanas Positivas" icon={<i className="fa-solid fa-bullseye text-[28px]"></i>} colorTheme="cyan" action="Ruta Focalizada (CSV)" onClick={() => descargarAccionTactica('TRATAMIENTO FOCALIZADO', ['Bajo'], 'Rutas_Focalizadas', true)} />
+                            <TacticalCard title="Operativo de Barrido" priority="Riesgo Alto (Dispersión)" target="100% de Manzanas del Sector" icon={<i className="fa-solid fa-route text-[28px]"></i>} colorTheme="orange" action="Rutas de Barrido (CSV)" onClick={() => descargarAccionTactica('OPERATIVO DE BARRIDO', ['Alto'], 'Rutas_Barrido', false)} />
+                            <TacticalCard title="Intervención Integral" priority="Riesgo Crítico (Brote inminente)" target="Cobertura Total (Físico/Químico)" icon={<i className="fa-solid fa-users-viewfinder text-[28px]"></i>} colorTheme="rose" action="Despliegue Integral (CSV)" onClick={() => descargarAccionTactica('INTERVENCION INTEGRAL', ['Crítico'], 'Despliegue_Integral', false)} />
                         </div>
                         </div>
                     )}
 
-                    {/* VISTA 3: TENDENCIAS (GRÁFICA PHMR GLOBAL Y COMPARATIVA) */}
-                    {activeTab === 'tendencias' && (
+                    {!isFullscreen && activeTab === 'tendencias' && (
                         <div className="space-y-6 animate-fade-in pb-8">
-                            
-                            {/* GRÁFICA 1: PHMR GLOBAL DE TODAS LAS OVITRAMPAS */}
                             <div className="bg-slate-900 rounded-2xl border border-slate-800 p-6 shadow-lg">
                                 <div className="flex items-center gap-3 mb-6">
                                     <div className="p-2 bg-cyan-500/20 rounded-lg text-cyan-400"><i className="fa-solid fa-earth-americas text-xl"></i></div>
-                                    <div>
-                                        <h3 className="text-xl font-bold text-white">Tendencia del PHMR Global</h3>
-                                        <p className="text-sm text-slate-400">Riesgo promedio de la ciudad entera (Universo Total: {statsGlobales.ovitrampasRevisadas} Ovitrampas Revisadas).</p>
-                                    </div>
+                                    <div><h3 className="text-xl font-bold text-white">Tendencia del PHMR Global</h3></div>
                                 </div>
-
-                                {Object.keys(historialSemanas).filter(k=>k!=='S/N').length < 2 ? (
-                                    <div className="h-[300px] flex flex-col items-center justify-center text-slate-500 bg-slate-950/50 rounded-xl border border-slate-800 border-dashed">
-                                        <i className="fa-solid fa-chart-area text-[32px] mb-3 opacity-50"></i>
-                                        <p className="text-center px-4">Se requieren al menos 2 semanas de datos para mostrar la curva global.</p>
-                                    </div>
-                                ) : (
-                                    <div className="h-[300px] md:h-[400px] w-full">
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <AreaChart data={chartTrendData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
-                                                <defs>
-                                                    <linearGradient id="colorPHMRGlobal" x1="0" y1="0" x2="0" y2="1">
-                                                        <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.8}/>
-                                                        <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.1}/>
-                                                    </linearGradient>
-                                                </defs>
-                                                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                                                <XAxis dataKey="semana" stroke="#64748b" tick={{fill: '#94a3b8', fontSize: 12}} axisLine={false} tickLine={false} />
-                                                <YAxis stroke="#64748b" tick={{fill: '#94a3b8', fontSize: 12}} axisLine={false} tickLine={false} />
-                                                <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f8fafc', borderRadius: '0.75rem' }} />
-                                                
-                                                <Area 
-                                                    type="monotone" 
-                                                    dataKey="PHMR_Global" 
-                                                    name="PHMR Global Ciudad" 
-                                                    stroke="#06b6d4" 
-                                                    strokeWidth={4} 
-                                                    fillOpacity={1} 
-                                                    fill="url(#colorPHMRGlobal)"
-                                                    activeDot={{r: 8, stroke: '#020617', strokeWidth: 2}}
-                                                />
-                                            </AreaChart>
-                                        </ResponsiveContainer>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* GRÁFICA 2: COMPARATIVA POR SECTOR */}
-                            <div className="bg-slate-900 rounded-2xl border border-slate-800 p-6 shadow-lg">
-                                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
-                                    <div className="flex items-center gap-3">
-                                        <div className="p-2 bg-rose-500/20 rounded-lg text-rose-400"><i className="fa-solid fa-map-location-dot text-xl"></i></div>
-                                        <div>
-                                            <h3 className="text-xl font-bold text-white">Comparativa por Colonia/Sector</h3>
-                                            <p className="text-sm text-slate-400">Compara el comportamiento de una colonia vs el Promedio Global.</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-3 bg-slate-950 p-2 rounded-lg border border-slate-700 w-full md:w-auto">
-                                        <i className="fa-solid fa-filter text-slate-500 pl-3"></i>
-                                        <select className="bg-transparent text-white font-bold text-sm outline-none cursor-pointer w-full md:w-64 truncate py-1" value={trendSector} onChange={(e) => setTrendSector(e.target.value)}>
-                                            {allSectorsList.map(sec => <option key={sec} value={sec} className="bg-slate-900">{sec}</option>)}
-                                        </select>
-                                    </div>
-                                </div>
-
-                                {Object.keys(historialSemanas).filter(k=>k!=='S/N').length < 2 ? (
-                                    <div className="h-[300px] flex flex-col items-center justify-center text-slate-500 bg-slate-950/50 rounded-xl border border-slate-800 border-dashed">
-                                        <i className="fa-solid fa-chart-line text-[32px] mb-3 opacity-50"></i>
-                                        <p className="text-center px-4">Se requieren al menos 2 semanas de datos para mostrar la comparativa.</p>
-                                    </div>
-                                ) : (
-                                    <div className="h-[300px] md:h-[400px] w-full">
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <LineChart data={chartTrendData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
-                                                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                                                <XAxis dataKey="semana" stroke="#64748b" tick={{fill: '#94a3b8', fontSize: 12}} axisLine={false} tickLine={false} />
-                                                <YAxis stroke="#64748b" tick={{fill: '#94a3b8', fontSize: 12}} axisLine={false} tickLine={false} />
-                                                <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f8fafc', borderRadius: '0.75rem' }} />
-                                                <Legend verticalAlign="top" height={36} wrapperStyle={{ paddingBottom: '10px' }}/>
-                                                <Line type="monotone" dataKey="PHMR_Global" name="Promedio Global" stroke="#64748b" strokeWidth={2} strokeDasharray="5 5" dot={false} />
-                                                <Line type="monotone" dataKey="PHMR_Sector" name={`Riesgo: ${trendSector}`} stroke="#f43f5e" strokeWidth={4} dot={{r: 6, strokeWidth: 2}} activeDot={{r: 8}} />
-                                            </LineChart>
-                                        </ResponsiveContainer>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* VISTA 4: ANÁLISIS DESCRIPTIVO */}
-                    {activeTab === 'analisis' && (
-                        <div className="max-w-5xl mx-auto space-y-6 animate-fade-in pb-8">
-                            <div className="bg-gradient-to-r from-indigo-900/40 to-slate-900 border border-indigo-500/30 rounded-2xl p-6 relative overflow-hidden">
-                                <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 blur-3xl rounded-full pointer-events-none"></div>
-                                <div className="flex flex-col md:flex-row justify-between items-start md:items-center relative z-10 gap-4">
-                                    <div>
-                                        <h2 className="text-xl md:text-2xl font-bold text-white mb-2 flex items-center gap-3"><i className="fa-solid fa-microscope text-indigo-400"></i> Análisis Epidemiológico</h2>
-                                        <p className="text-slate-400 text-sm">Correlación de indicadores de la <strong>SE {statsGlobales.semanaEpidemiologica}</strong>.</p>
-                                    </div>
-                                    <div className="bg-slate-950/50 px-4 py-2 rounded-xl border border-slate-800 text-center w-full md:w-auto">
-                                        <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">Riesgo Global (PHMR)</p>
-                                        <p className={`text-xl ${analisisTextos.riesgoNivelClase}`}>{analisisTextos.riesgoNivelTexto}</p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="grid grid-cols-1 gap-6">
-                                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 relative overflow-hidden group hover:border-cyan-500/30 transition-all">
-                                    <div className="flex flex-col sm:flex-row items-start gap-4">
-                                        <div className="p-4 bg-cyan-950/50 rounded-xl text-cyan-400 border border-cyan-900/50 shrink-0"><i className="fa-solid fa-map-location-dot text-2xl"></i></div>
-                                        <div>
-                                            <h3 className="text-lg font-bold text-white mb-1">1. Distribución Territorial y Habitacional</h3>
-                                            <div className="flex gap-4 mb-3">
-                                                <span className="text-xs sm:text-sm font-medium bg-slate-800 px-2 py-1 rounded text-cyan-300 border border-slate-700">%MP: {calcMP}%</span>
-                                                <span className="text-xs sm:text-sm font-medium bg-slate-800 px-2 py-1 rounded text-cyan-300 border border-slate-700">IPO: {calcIPO}%</span>
-                                            </div>
-                                            <p className="text-slate-300 leading-relaxed text-sm">{analisisTextos.txtTerritorial}</p>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 relative overflow-hidden group hover:border-orange-500/30 transition-all">
-                                    <div className="flex flex-col sm:flex-row items-start gap-4">
-                                        <div className="p-4 bg-orange-950/50 rounded-xl text-orange-400 border border-orange-900/50 shrink-0"><i className="fa-solid fa-mosquito text-2xl"></i></div>
-                                        <div>
-                                            <h3 className="text-lg font-bold text-white mb-1">2. Densidad Focalizada</h3>
-                                            <div className="flex gap-4 mb-3"><span className="text-xs sm:text-sm font-medium bg-slate-800 px-2 py-1 rounded text-orange-300 border border-slate-700">PHO: {calcPHO}</span></div>
-                                            <p className="text-slate-300 leading-relaxed text-sm">Mientras que los indicadores anteriores muestran <i>dónde</i> está el vector, el PHO determina la intensidad: {analisisTextos.txtDensidad}</p>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 relative overflow-hidden group hover:border-rose-500/30 transition-all">
-                                    <div className="absolute top-0 right-0 w-2 h-full bg-gradient-to-b from-rose-500/50 to-transparent"></div>
-                                    <div className="flex flex-col sm:flex-row items-start gap-4">
-                                        <div className="p-4 bg-rose-950/50 rounded-xl text-rose-400 border border-rose-900/50 shrink-0"><i className="fa-solid fa-triangle-exclamation text-2xl"></i></div>
-                                        <div>
-                                            <h3 className="text-lg font-bold text-white mb-1">3. Síntesis del Riesgo Total</h3>
-                                            <div className="flex gap-4 mb-3"><span className="text-xs sm:text-sm font-bold bg-rose-950/50 px-2 py-1 rounded text-rose-300 border border-rose-800">PHMR General: {calcPHMR}</span></div>
-                                            <p className="text-slate-300 leading-relaxed text-sm">
-                                                La convergencia de abundancia y extensión se engloba en el PHMR. La conclusión operativa es: <br/><br/>
-                                                <strong className="text-white">{analisisTextos.txtRiesgo}</strong>
-                                            </p>
-                                        </div>
-                                    </div>
+                                <div className="h-[300px] md:h-[400px] w-full">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <AreaChart data={chartTrendData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
+                                            <defs><linearGradient id="colorPHMRGlobal" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#06b6d4" stopOpacity={0.8}/><stop offset="95%" stopColor="#06b6d4" stopOpacity={0.1}/></linearGradient></defs>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                                            <XAxis dataKey="semana" stroke="#64748b" tick={{fill: '#94a3b8', fontSize: 12}} axisLine={false} tickLine={false} />
+                                            <YAxis stroke="#64748b" tick={{fill: '#94a3b8', fontSize: 12}} axisLine={false} tickLine={false} />
+                                            <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f8fafc', borderRadius: '0.75rem' }} />
+                                            <Area type="monotone" dataKey="PHMR_Global" name="PHMR Global Ciudad" stroke="#06b6d4" strokeWidth={4} fillOpacity={1} fill="url(#colorPHMRGlobal)" activeDot={{r: 8, stroke: '#020617', strokeWidth: 2}} />
+                                        </AreaChart>
+                                    </ResponsiveContainer>
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {/* VISTA 5: MATRICES NUMÉRICAS ACTUALIZADAS */}
-                    {activeTab === 'metricas' && (
+                    {!isFullscreen && activeTab === 'metricas' && (
                         <div className="space-y-6 animate-fade-in pb-8">
-                        <div className="bg-slate-900/80 border border-cyan-500/30 rounded-2xl p-6 backdrop-blur-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                            <div className="flex items-start gap-4">
-                                <div className="bg-cyan-500/20 p-3 rounded-xl border border-cyan-500/40 shrink-0"><i className="fa-solid fa-calculator text-cyan-400 text-[32px]"></i></div>
-                                <div>
-                                    <h2 className="text-xl font-bold text-white mb-1">Matriz de Indicadores Numéricos</h2>
-                                    <p className="text-slate-400 text-sm leading-relaxed">Cálculos Oficiales CENAPRECE correspondientes a la SE {statsGlobales.semanaEpidemiologica}.</p>
-                                </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                                <IndicatorCard title="IPO" name="Porcentaje de Ovitrampa Positiva" value={`${calcIPO}%`} formula="(Ovitrampas Positivas / Ovitrampas Revisadas) x 100" explanation="Dispersión territorial del vector." colorTheme="rose" />
+                                <IndicatorCard title="PHO" name="Promedio de Huevos por Ovitrampa" value={calcPHO} formula="(Total de Huevos / Número de Ovitrampas Positivas)" explanation="Densidad reproductiva de hembras grávidas." colorTheme="orange" />
+                                <IndicatorCard title="PHMR" name="Promedio de Huevos por Manzana" value={calcPHMR} formula="(Total de Huevos por Manzana / Manzanas Revisadas)" explanation="Riesgo Relativo de Transmisión global en la ciudad." colorTheme="amber" />
+                                <IndicatorCard title="PHMP" name="Promedio de Huevos por Manzanas Positivas" value={calcPHMP} formula="(Total de Huevos por Manzana / Manzanas Positivas)" explanation="Intensidad de reproducción concentrada en los focos." colorTheme="emerald" />
+                                <IndicatorCard title="%MP" name="Porcentaje de Manzanas Positivas" value={`${calcMP}%`} formula="(Manzanas Positivas / Manzanas Revisadas) X 100" explanation="Extensión de riesgo geográfico." colorTheme="cyan" />
                             </div>
-                            <button onClick={descargarIndicadoresCSV} className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg font-bold shadow-lg transition-colors flex items-center gap-2 w-full sm:w-auto justify-center shrink-0">
-                                <i className="fa-solid fa-download"></i> CSV Base Datos
-                            </button>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {/* Ajuste de fórmulas exactas basadas rigurosamente en la imagen solicitada */}
-                            <IndicatorCard title="IPO" name="Porcentaje de Ovitrampa Positiva" value={`${calcIPO}%`} formula="(Ovitrampas Positivas / Ovitrampas Revisadas) x 100" explanation="Dispersión territorial del vector." colorTheme="rose" />
-                            <IndicatorCard title="PHO" name="Promedio de Huevos por Ovitrampa" value={calcPHO} formula="(Total de Huevos / Número de Ovitrampas Positivas)" explanation="Densidad reproductiva de hembras grávidas." colorTheme="orange" />
-                            <IndicatorCard title="PHMR" name="Promedio de Huevos por Manzana" value={calcPHMR} formula="(Total de Huevos por Manzana / Manzanas Revisadas)" explanation="Riesgo Relativo de Transmisión global en la ciudad." colorTheme="amber" />
-                            <IndicatorCard title="PHMP" name="Promedio de Huevos por Manzanas Positivas" value={calcPHMP} formula="(Total de Huevos por Manzana / Manzanas Positivas)" explanation="Intensidad de reproducción concentrada en los focos." colorTheme="emerald" />
-                            <IndicatorCard title="%MP" name="Porcentaje de Manzanas Positivas" value={`${calcMP}%`} formula="(Manzanas Positivas / Manzanas Revisadas) X 100" explanation="Extensión de riesgo geográfico." colorTheme="cyan" />
-                        </div>
                         </div>
                     )}
 
-                    {/* VISTA 6: RADAR MAPA REAL */}
+                    {/* VISTA 6: RADAR MAPA REAL (PUEDE SER FULLSCREEN) */}
                     {activeTab === 'radar' && (
-                        <div className="flex flex-col xl:flex-row gap-6 animate-fade-in h-[calc(100vh-220px)] min-h-[600px] pb-8">
+                        <div className={`flex flex-col xl:flex-row gap-6 animate-fade-in ${isFullscreen ? 'h-full w-full' : 'h-[calc(100vh-220px)] min-h-[600px] pb-8'}`}>
                         
-                        <div className="flex-1 bg-slate-900/50 p-4 rounded-2xl border border-slate-800 backdrop-blur-sm flex flex-col h-[500px] xl:h-full relative">
-                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
+                        <div className={mainContainerClasses}>
+                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4 shrink-0">
                                 <h2 className="text-xl font-bold text-white flex items-center gap-2"><i className="fa-solid fa-earth-americas text-cyan-400"></i> Cartografía Táctica (PHMR)</h2>
                                 <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
                                     
                                     {/* SELECTOR DE ESTILO DE MAPA */}
-                                    <div className="flex items-center gap-2 bg-slate-950 p-1 rounded-lg border border-slate-700">
+                                    <div className="flex items-center gap-2 bg-slate-950 p-1 rounded-lg border border-slate-700 shadow-md">
                                         <i className="fa-solid fa-layer-group text-slate-400 pl-2 text-xs"></i>
                                         <select value={mapStyle} onChange={(e) => setMapStyle(e.target.value)} className="bg-transparent text-white text-xs font-bold outline-none cursor-pointer pr-2 py-1">
-                                            <option value="oscuro" className="bg-slate-900">Oscuro</option>
-                                            <option value="claro" className="bg-slate-900">Claro</option>
+                                            <option value="oscuro" className="bg-slate-900">Noche</option>
+                                            <option value="claro" className="bg-slate-900">Día</option>
                                             <option value="satelite" className="bg-slate-900">Satélite</option>
                                             <option value="calles" className="bg-slate-900">Calles</option>
                                         </select>
@@ -963,18 +840,24 @@
 
                                     {/* FILTRO DE FOCOS ROJOS */}
                                     {mapViewMode === 'puntos' && (
-                                        <div className="flex bg-slate-950 border border-slate-700 rounded-lg p-0.5 gap-1">
+                                        <div className="flex bg-slate-950 border border-slate-700 rounded-lg p-0.5 gap-1 shadow-md">
                                             <button onClick={() => setRiskFilter('Todos')} className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${riskFilter==='Todos'?'bg-slate-800 text-white shadow-sm':'text-slate-400 hover:bg-slate-900'}`}>Global</button>
                                             <button onClick={() => setRiskFilter('Crítico')} className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all flex items-center gap-1 ${riskFilter==='Crítico'?'bg-rose-500/20 text-rose-400 border border-rose-500/50 shadow-sm':'text-slate-400 hover:bg-slate-900 border border-transparent'}`} title="Focalizar sólo en Sectores Críticos"><i className="fa-solid fa-fire"></i> Focos Rojos</button>
                                         </div>
                                     )}
 
                                     {mapViewMode === 'puntos' && (
-                                        <button onClick={descargarMapaImagen} className="flex-1 sm:flex-none justify-center px-3 py-1.5 rounded-lg text-xs font-bold transition-colors bg-emerald-600 text-white hover:bg-emerald-500 shadow-md flex items-center gap-2">
-                                            <i className="fa-solid fa-camera"></i> Foto
-                                        </button>
+                                        <div className="flex gap-2">
+                                            <button onClick={descargarMapaImagen} className="flex-1 sm:flex-none justify-center px-3 py-1.5 rounded-lg text-xs font-bold transition-colors bg-emerald-600 text-white hover:bg-emerald-500 shadow-md flex items-center gap-2">
+                                                <i className="fa-solid fa-camera"></i> Foto
+                                            </button>
+                                            <button onClick={() => setIsFullscreen(!isFullscreen)} className="flex-1 sm:flex-none justify-center px-3 py-1.5 rounded-lg text-xs font-bold transition-colors bg-indigo-600 text-white hover:bg-indigo-500 shadow-md flex items-center gap-2">
+                                                <i className={`fa-solid ${isFullscreen ? 'fa-compress' : 'fa-expand'}`}></i> {isFullscreen ? 'Salir' : 'Pantalla Completa'}
+                                            </button>
+                                        </div>
                                     )}
-                                    <div className="flex bg-slate-950 border border-slate-700 rounded-lg p-0.5 gap-1">
+
+                                    <div className="flex bg-slate-950 border border-slate-700 rounded-lg p-0.5 gap-1 shadow-md">
                                         <button onClick={() => setMapViewMode('puntos')} className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors ${mapViewMode === 'puntos' ? 'bg-cyan-600 text-white shadow-sm' : 'text-slate-400 hover:bg-slate-900'}`}>GPS</button>
                                         <button onClick={() => setMapViewMode('colonias')} className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors ${mapViewMode === 'colonias' ? 'bg-cyan-600 text-white shadow-sm' : 'text-slate-400 hover:bg-slate-900'}`}>Tabla</button>
                                     </div>
@@ -982,23 +865,31 @@
                             </div>
 
                             {mapViewMode === 'puntos' ? (
-                                <div ref={mapContainerRef} className="flex-1 w-full bg-slate-950 rounded-xl border border-slate-800 relative z-0 overflow-hidden">
-                                    <div className="absolute top-4 left-4 z-[400] pointer-events-none drop-shadow-lg hidden sm:block">
-                                        <h3 className="text-white font-black text-lg drop-shadow-md bg-slate-900/80 px-3 py-1 rounded-lg backdrop-blur-sm border border-slate-700">Riesgo Sectorial SE {statsGlobales.semanaEpidemiologica}</h3>
+                                <div ref={mapContainerRef} className="flex-1 w-full bg-slate-950 rounded-xl border border-slate-800 relative z-0 overflow-hidden shadow-inner">
+                                    
+                                    {/* LEYENDA DINÁMICA TIPO QGIS/ARCGIS */}
+                                    <div className="absolute top-4 right-4 z-[400] bg-[#e5e5e5] text-slate-800 p-2.5 rounded-lg shadow-xl pointer-events-none flex flex-col w-32 border border-slate-300">
+                                        <span className="text-[11px] font-bold mb-2 text-center text-slate-700">Número de Huevos</span>
+                                        <div className="flex h-32 gap-3 items-center justify-center">
+                                            <div className="w-3.5 h-full rounded shadow-inner" style={{ background: 'linear-gradient(to top, #ff1744 0%, #ff9100 20%, #ffea00 40%, #76ff03 60%, #00e676 80%, #00d4ff 100%)' }}></div>
+                                            <div className="flex flex-col justify-between text-[11px] font-bold h-full py-0 text-slate-600">
+                                                <span>{Math.round(maxHuevosSemana)}</span>
+                                                <span>{Math.round(maxHuevosSemana * 0.8)}</span>
+                                                <span>{Math.round(maxHuevosSemana * 0.6)}</span>
+                                                <span>{Math.round(maxHuevosSemana * 0.4)}</span>
+                                                <span>{Math.round(maxHuevosSemana * 0.2)}</span>
+                                                <span>0</span>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div className="absolute bottom-4 right-4 flex flex-col gap-2 bg-slate-900/90 p-3 rounded-lg border border-slate-700 backdrop-blur-md z-[400] shadow-xl">
-                                        <span className="text-[10px] text-slate-400 font-bold mb-1 border-b border-slate-700 pb-1">RIESGO (PHMR)</span>
-                                        <span className="flex items-center gap-2 text-xs font-medium text-white"><div className="w-3 h-3 rounded-full bg-rose-500"></div> Crítico (&gt; 50)</span>
-                                        <span className="flex items-center gap-2 text-xs font-medium text-white"><div className="w-3 h-3 rounded-full bg-orange-400"></div> Alto (&gt; 20)</span>
-                                        <span className="flex items-center gap-2 text-xs font-medium text-white"><div className="w-3 h-3 rounded-full bg-cyan-600"></div> Bajo (&lt; 20)</span>
-                                    </div>
-                                    <MapaInteractivo data={mapDataWithSectorRisk} onMarkerClick={setSelectedHotspot} mapStyle={mapStyle} />
+
+                                    <MapaInteractivo data={mapDataWithSectorRisk} onMarkerClick={setSelectedHotspot} mapStyle={mapStyle} isFullscreen={isFullscreen} maxHuevos={maxHuevosSemana} />
                                 </div>
                             ) : (
                                 <div className="h-full overflow-y-auto bg-slate-900/50 rounded-xl border border-slate-800">
                                     <table className="w-full text-left border-collapse relative z-10">
                                         <thead>
-                                            <tr className="border-b border-slate-700 text-slate-400 text-xs sm:text-sm sticky top-0 bg-slate-900 shadow-md">
+                                            <tr className="border-b border-slate-700 text-slate-400 text-xs sm:text-sm sticky top-0 bg-slate-900 shadow-md z-20">
                                                 <th className="p-3 font-semibold">Sector / Colonia</th>
                                                 <th className="p-3 font-semibold text-center hidden sm:table-cell">Ovitrampas Revisadas</th>
                                                 <th className="p-3 font-semibold text-center text-rose-400">Positivas</th>
@@ -1010,12 +901,23 @@
                                         <tbody className="divide-y divide-slate-800/50 text-xs sm:text-sm">
                                             {datosPorSector.map((sector, idx) => (
                                                 <tr key={idx} className="hover:bg-slate-800/30 transition-colors">
-                                                    <td className="p-3 font-medium text-white">{sector.nombre}</td>
-                                                    <td className="p-3 text-center text-slate-300 hidden sm:table-cell">{sector.leidas}</td>
-                                                    <td className="p-3 text-center font-bold text-rose-400">{sector.positivas}</td>
-                                                    <td className="p-3 text-center font-bold text-orange-400 hidden sm:table-cell">{sector.huevos}</td>
-                                                    <td className="p-3 text-center font-bold text-amber-400 bg-amber-900/10">{sector.phmr}</td>
-                                                    <td className="p-3 text-center">
+                                                    <td className="p-3 font-medium text-white">
+                                                        <div className="text-base">{sector.nombre}</div>
+                                                        {/* TOP 3 MANZANAS DE ESTE SECTOR */}
+                                                        <div className="mt-1 flex flex-wrap gap-1.5">
+                                                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">Top Focos:</span>
+                                                            {sector.topManzanas && sector.topManzanas.map((tm, i) => (
+                                                                <span key={i} className="text-[10px] bg-rose-500/10 text-rose-300 border border-rose-500/30 px-1.5 py-0.5 rounded shadow-sm">
+                                                                    Mzn {tm.manzana} <span className="font-bold opacity-80">({tm.huevos} H)</span>
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    </td>
+                                                    <td className="p-3 text-center text-slate-300 hidden sm:table-cell align-middle">{sector.leidas}</td>
+                                                    <td className="p-3 text-center font-bold text-rose-400 align-middle">{sector.positivas}</td>
+                                                    <td className="p-3 text-center font-bold text-orange-400 hidden sm:table-cell align-middle">{sector.huevos}</td>
+                                                    <td className="p-3 text-center font-bold text-amber-400 bg-amber-900/10 align-middle">{sector.phmr}</td>
+                                                    <td className="p-3 text-center align-middle">
                                                         <span className={`px-2 py-1 rounded text-[10px] sm:text-xs font-bold uppercase ${sector.riesgoNivel === 'Crítico' ? 'bg-rose-500/20 text-rose-400' : sector.riesgoNivel === 'Alto' ? 'bg-orange-500/20 text-orange-400' : 'bg-cyan-500/20 text-cyan-400'}`}>{sector.riesgoNivel}</span>
                                                     </td>
                                                 </tr>
@@ -1026,47 +928,30 @@
                             )}
                         </div>
 
-                        <div className="w-full xl:w-96 flex flex-col gap-4 shrink-0">
-                        {selectedHotspot && mapViewMode === 'puntos' ? (
-                            <div className="bg-slate-900 p-6 rounded-2xl border border-cyan-500/30 shadow-[0_0_30px_rgba(6,182,212,0.1)] animate-fade-in">
-                            <div className="flex items-start justify-between mb-4">
-                                <h3 className="text-xl font-bold text-white break-words">{selectedHotspot.id}</h3>
-                                <span className={`px-3 py-1 rounded-full text-xs font-black uppercase shrink-0 ${selectedHotspot.sectorRiesgo === 'Crítico' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/50' : selectedHotspot.sectorRiesgo === 'Alto' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/50' : 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/50'}`}>
-                                Riesgo: {selectedHotspot.sectorRiesgo}
-                                </span>
-                            </div>
-                            <p className="text-slate-400 text-sm mb-6 flex items-center gap-2"><i className="fa-solid fa-location-dot"></i> S:{selectedHotspot.sector} | M:{selectedHotspot.manzana}</p>
-                            <div className="grid grid-cols-2 gap-4 mb-6">
-                                <StatBox label="Huevos Trampa" value={selectedHotspot.huevos} />
-                                <StatBox label="PHMR Sectorial" value={selectedHotspot.sectorPhmr} isAlert={selectedHotspot.sectorRiesgo === 'Crítico'} />
-                            </div>
-                            <div className="border-t border-slate-800 pt-4">
-                                <h4 className="text-sm text-slate-400 mb-3 flex items-center gap-2"><i className="fa-solid fa-bolt text-amber-400 text-[16px]"></i> Estrategia Recomendada</h4>
-                                {selectedHotspot.sectorRiesgo === 'Crítico' ? (
-                                <div className="space-y-2">
-                                    <ActionTag text="INTERVENCIÓN INTEGRAL requerida." type="danger" />
-                                    <ActionTag text="Barrido 100% + Nebulización Espacial." type="danger" />
+                        {!isFullscreen && (
+                            <div className="w-full xl:w-96 flex flex-col gap-4 shrink-0">
+                            {selectedHotspot && mapViewMode === 'puntos' ? (
+                                <div className="bg-slate-900 p-6 rounded-2xl border border-cyan-500/30 shadow-[0_0_30px_rgba(6,182,212,0.1)] animate-fade-in">
+                                <div className="flex items-start justify-between mb-4">
+                                    <h3 className="text-xl font-bold text-white break-words">{selectedHotspot.id}</h3>
+                                    <span className={`px-3 py-1 rounded-full text-xs font-black uppercase shrink-0 ${selectedHotspot.sectorRiesgo === 'Crítico' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/50' : selectedHotspot.sectorRiesgo === 'Alto' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/50' : 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/50'}`}>
+                                    Riesgo: {selectedHotspot.sectorRiesgo}
+                                    </span>
                                 </div>
-                                ) : selectedHotspot.sectorRiesgo === 'Alto' ? (
-                                <div className="space-y-2">
-                                    <ActionTag text="OPERATIVO DE BARRIDO requerido." type="warning" />
-                                    <ActionTag text="Trabajar 100% de manzanas del sector." type="warning" />
+                                <p className="text-slate-400 text-sm mb-6 flex items-center gap-2"><i className="fa-solid fa-location-dot"></i> S:{selectedHotspot.sector} | M:{selectedHotspot.manzana} {selectedHotspot.hectareas ? `| Ha: ${selectedHotspot.hectareas}` : ''}</p>
+                                <div className="grid grid-cols-2 gap-4 mb-6">
+                                    <StatBox label="Huevos Trampa" value={selectedHotspot.huevos} />
+                                    <StatBox label="PHMR Sectorial" value={selectedHotspot.sectorPhmr} isAlert={selectedHotspot.sectorRiesgo === 'Crítico'} />
                                 </div>
-                                ) : (
-                                <div className="space-y-2">
-                                    <ActionTag text="TRATAMIENTO FOCALIZADO recomendado." type="info" />
-                                    <ActionTag text="Visitar exclusivamente manzanas (+)." type="info" />
                                 </div>
-                                )}
-                            </div>
-                            </div>
-                        ) : (
-                            <div className="bg-slate-900/50 p-6 rounded-2xl border border-slate-800 h-[380px] flex flex-col items-center justify-center text-center text-slate-500 border-dashed">
-                            <i className="fa-solid fa-map-location-dot text-[48px] mb-4 opacity-30"></i>
-                            <p className="px-4">{mapViewMode === 'puntos' ? 'Selecciona una ovitrampa en el mapa satelital para ver la táctica recomendada.' : 'La tabla muestra la densidad de huevos consolidada por Sector.'}</p>
+                            ) : (
+                                <div className="bg-slate-900/50 p-6 rounded-2xl border border-slate-800 h-[380px] flex flex-col items-center justify-center text-center text-slate-500 border-dashed">
+                                <i className="fa-solid fa-map-location-dot text-[48px] mb-4 opacity-30"></i>
+                                <p className="px-4">{mapViewMode === 'puntos' ? 'Selecciona una ovitrampa en el mapa satelital para ver la táctica recomendada.' : 'La tabla muestra la densidad de huevos consolidada por Sector.'}</p>
+                                </div>
+                            )}
                             </div>
                         )}
-                        </div>
                         </div>
                     )}
                     </div>
@@ -1105,16 +990,6 @@
                 <div className="mb-4 bg-slate-950/50 p-3 rounded-lg border border-slate-800 flex items-center gap-3">
                     <i className="fa-solid fa-calculator opacity-50 shrink-0 text-[18px]"></i><span className="text-[10px] sm:text-xs font-mono text-slate-300 break-words">{formula}</span>
                 </div>
-                <div className="flex items-start gap-2 text-sm text-slate-400"><i className="fa-solid fa-circle-info shrink-0 mt-0.5 text-[16px]"></i><p className="leading-relaxed">{explanation}</p></div>
-                </div>
-            );
-        }
-
-        function ActionTag({ text, type }) {
-            const styles = { danger: 'bg-rose-950/50 border-rose-800 text-rose-300', warning: 'bg-orange-950/50 border-orange-800 text-orange-300', info: 'bg-cyan-950/50 border-cyan-800 text-cyan-300', primary: 'bg-indigo-950/50 border-indigo-800 text-indigo-300' };
-            return (
-                <div className={`flex items-start gap-2 p-2 border rounded-lg text-xs font-medium leading-tight ${styles[type]}`}>
-                <i className="fa-solid fa-chevron-right shrink-0 mt-0.5 text-[12px]"></i> {text}
                 </div>
             );
         }
@@ -1123,8 +998,7 @@
             const themes = { 
                 rose: { bgIcon: 'bg-rose-500/20 text-rose-400', badge: 'bg-rose-500/20 text-rose-400 border-rose-500/30', glow: 'bg-rose-500/10', btnHover: 'hover:bg-rose-600 hover:border-rose-500' }, 
                 orange: { bgIcon: 'bg-orange-500/20 text-orange-400', badge: 'bg-orange-500/20 text-orange-400 border-orange-500/30', glow: 'bg-orange-500/10', btnHover: 'hover:bg-orange-600 hover:border-orange-500' }, 
-                cyan: { bgIcon: 'bg-cyan-500/20 text-cyan-400', badge: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30', glow: 'bg-cyan-500/10', btnHover: 'hover:bg-cyan-600 hover:border-cyan-500' }, 
-                indigo: { bgIcon: 'bg-indigo-500/20 text-indigo-400', badge: 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30', glow: 'bg-indigo-500/10', btnHover: 'hover:bg-indigo-600 hover:border-indigo-500' } 
+                cyan: { bgIcon: 'bg-cyan-500/20 text-cyan-400', badge: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30', glow: 'bg-cyan-500/10', btnHover: 'hover:bg-cyan-600 hover:border-cyan-500' }
             };
             const theme = themes[colorTheme] || themes.cyan;
             return (
