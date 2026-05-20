@@ -50,7 +50,7 @@
 
         .leaflet-popup-content-wrapper { background-color: #0f172a; color: #e2e8f0; border: 1px solid #334155; border-radius: 0.75rem; }
         .leaflet-popup-tip { background-color: #0f172a; border-bottom: 1px solid #334155; border-right: 1px solid #334155; }
-        .leaflet-container { background: #020617; outline: 0; }
+        .leaflet-container { background: #020617; outline: 0; transition: background-color 0.3s ease; }
 
         /* --- ESTILOS DE HOTSPOTS RADIALES --- */
         .hotspot-marker {
@@ -176,9 +176,24 @@
                 }
 
                 let url = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
-                if (mapStyle === 'claro') url = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
-                else if (mapStyle === 'satelite') url = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-                else if (mapStyle === 'calles') url = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+                let bgColor = '#020617'; // Fondo oscuro por defecto
+
+                if (mapStyle === 'claro') {
+                    url = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+                    bgColor = '#f8fafc'; // Fondo claro
+                } else if (mapStyle === 'satelite') {
+                    url = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+                    bgColor = '#111111'; // Fondo oscuro para satélite
+                } else if (mapStyle === 'calles') {
+                    // Nuevo proveedor ArcGIS World Street Map (Muestra colonias y gran detalle)
+                    url = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
+                    bgColor = '#f4f4f4'; // Fondo gris claro para calles
+                }
+
+                // Cambiar el color de fondo dinámicamente para evitar huecos negros si el internet falla
+                if (mapRef.current) {
+                    mapRef.current.style.backgroundColor = bgColor;
+                }
 
                 tileLayerInstance.current = L.tileLayer(url, {
                     subdomains: 'abcd',
@@ -1169,7 +1184,7 @@
                                             <option value="oscuro" className="bg-slate-900">Noche</option>
                                             <option value="claro" className="bg-slate-900">Día</option>
                                             <option value="satelite" className="bg-slate-900">Satélite</option>
-                                            <option value="calles" className="bg-slate-900">Calles</option>
+                                            <option value="calles" className="bg-slate-900">Calles y Colonias</option>
                                         </select>
                                     </div>
 
