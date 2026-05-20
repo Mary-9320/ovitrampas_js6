@@ -115,11 +115,21 @@
         const HECTARES_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSaICLfEhy8zhFI2eoY1hygCKY7Dcg4PPyTEPWL_1kEz-_qO3WMER0WP4xE08pUeh7kH2QK0VZ7dEEg/pub?gid=1074577602&single=true&output=csv';
         const ACTIONS_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSaICLfEhy8zhFI2eoY1hygCKY7Dcg4PPyTEPWL_1kEz-_qO3WMER0WP4xE08pUeh7kH2QK0VZ7dEEg/pub?gid=1158730377&single=true&output=csv';
 
+        // --- DICCIONARIO HISTORICO AÑO PASADO (MOCK BASADO EN IMAGEN DE TENDENCIA) ---
+        const HISTORICO_PHMR_ANIO_PASADO = {
+            "1": 54.22, "2": 81.68, "3": 40.23, "4": 23.43, "5": 18.19, "6": 28.03, "7": 21.23, "8": 26.35, "9": 22.45, "10": 34.31,
+            "11": 31.80, "12": 35.65, "13": 47.81, "14": 51.45, "15": 47.19, "16": 58.67, "17": 62.56, "18": 56.94, "19": 63.12, "20": 73.73,
+            "21": 91.83, "22": 118.26, "23": 218.25, "24": 284.61, "25": 203.07, "26": 144.67, "27": 98.42, "28": 82.38, "29": 172.87, "30": 131.57,
+            "31": 35.27, "32": 73.45, "33": 63.10, "34": 43.64, "35": 40.30, "36": 98.26, "37": 100.27, "38": 123.23, "39": 230.38, "40": 426.86,
+            "41": 332.71, "42": 204.35, "43": 273.53, "44": 346.11, "45": 148.97, "46": 114.03, "47": 95.66, "48": 189.97, "49": 43.51, "50": 39.90,
+            "51": 45.45, "52": 46.48, "53": 77.23
+        };
+
         const { useState, useEffect, useMemo, useRef } = React;
         const { ScatterChart, Scatter, ZAxis, XAxis, YAxis, Tooltip: RechartsTooltip, ResponsiveContainer, Cell, LineChart, Line, AreaChart, Area, CartesianGrid, Legend } = window.Recharts;
 
         // --- COMPONENTE DEL MAPA REAL (LEAFLET) ---
-        function MapaInteractivo({ data, onMarkerClick, mapStyle, isFullscreen, maxHuevos }) {
+        function MapaInteractivo({ data, onMarkerClick, mapStyle, isFullscreen, maxHuevos, sectorToFocus }) {
             const mapRef = useRef(null);
             const mapInstance = useRef(null);
             const tileLayerInstance = useRef(null);
@@ -173,6 +183,22 @@
                 return '#ff1744'; 
             };
 
+            // Efecto para centrar cuando se selecciona un sector desde la tabla
+            useEffect(() => {
+                if (sectorToFocus && mapInstance.current && data && data.length > 0) {
+                    const sectorPoints = data.filter(p => `${p.municipio} - Sector ${p.sector}` === sectorToFocus);
+                    if (sectorPoints.length > 0) {
+                        const bounds = L.latLngBounds();
+                        sectorPoints.forEach(p => {
+                            if (p.y && p.x) bounds.extend([p.y, p.x]);
+                        });
+                        if (bounds.isValid()) {
+                            mapInstance.current.flyToBounds(bounds, { maxZoom: 16, padding: [40, 40], duration: 1.5 });
+                        }
+                    }
+                }
+            }, [sectorToFocus, data]);
+
             useEffect(() => {
                 if (markerGroupInstance.current) {
                     markerGroupInstance.current.clearLayers(); 
@@ -207,15 +233,17 @@
                             `;
                             marker.bindPopup(popupContent);
                             marker.on('click', () => { if(onMarkerClick) onMarkerClick(punto); });
-                            bounds.extend([punto.y, punto.x]);
+                            
+                            // Si hay sectorToFocus, no ajustamos bounds aquí para no sobreescribir el flyToBounds
+                            if (!sectorToFocus) bounds.extend([punto.y, punto.x]);
                         }
                     });
                     
-                    if (bounds.isValid()) {
+                    if (bounds.isValid() && !sectorToFocus) {
                         mapInstance.current.fitBounds(bounds, { padding: [30, 30] });
                     }
                 }
-            }, [data, maxHuevos]);
+            }, [data, maxHuevos, sectorToFocus]);
 
             return <div ref={mapRef} style={{ width: '100%', height: '100%', borderRadius: isFullscreen ? '0' : '0.75rem', zIndex: 1 }}></div>;
         }
@@ -243,10 +271,12 @@
 
             const [selectedHotspot, setSelectedHotspot] = useState(null);
             const [mapViewMode, setMapViewMode] = useState('puntos'); 
+            const [sectorToFocus, setSectorToFocus] = useState(null); // Nuevo estado para enfocar
             
             const [trendSector, setTrendSector] = useState('Global');
 
             const mapContainerRef = useRef(null);
+            const chartContainerRef = useRef(null); // Referencia para el gráfico de tendencias
 
             // --- LÓGICA DE SINCRONIZACIÓN AUTOMÁTICA BLINDADA ---
             const fetchSafe = async (url) => {
@@ -675,6 +705,7 @@
                         semana: `SE ${sem}`,
                         PHMR_Global: weekData.statsGlobales.phmrGlobal,
                         PHMR_Sector: sectorData ? sectorData.phmr : null,
+                        PHMR_Historico: HISTORICO_PHMR_ANIO_PASADO[sem] || null, // AÑADIDO EL DATO HISTÓRICO AL GRÁFICO
                         hasAction: !!actionInfo,
                         accionInfo: actionInfo
                     };
@@ -757,6 +788,18 @@
                 }
             };
 
+            const descargarGraficoTendencias = async () => {
+                if (chartContainerRef.current) {
+                    try {
+                        const canvas = await html2canvas(chartContainerRef.current, { backgroundColor: '#0f172a' });
+                        const link = document.createElement("a");
+                        link.href = canvas.toDataURL("image/png");
+                        link.download = `Tendencias_PHMR_${trendSector.replace(/\s/g, '_')}.png`;
+                        link.click();
+                    } catch (e) { alert("Error al descargar gráfico. Intenta de nuevo."); }
+                }
+            };
+
             const descargarAccionTactica = (tipoAccion, nivelesRiesgo, filename, soloPositivas) => {
                 let puntosAfectados = mapDataWithSectorRisk.filter(p => nivelesRiesgo.includes(p.sectorRiesgo));
                 if (soloPositivas) puntosAfectados = puntosAfectados.filter(p => p.huevos > 0);
@@ -782,6 +825,11 @@
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
+            };
+
+            const enfocarSectorEnMapa = (nombreSector) => {
+                setSectorToFocus(nombreSector);
+                setMapViewMode('puntos');
             };
 
             const mainContainerClasses = isFullscreen 
@@ -955,7 +1003,7 @@
 
                     {!isFullscreen && activeTab === 'tendencias' && (
                         <div className="space-y-4 sm:space-y-6 animate-fade-in pb-8">
-                            <div className="bg-slate-900 rounded-2xl border border-slate-800 p-4 sm:p-6 shadow-lg">
+                            <div className="bg-slate-900 rounded-2xl border border-slate-800 p-4 sm:p-6 shadow-lg relative">
                                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
                                     <div className="flex items-center gap-3">
                                         <div className="p-2 bg-rose-500/20 rounded-lg text-rose-400"><i className="fa-solid fa-map-location-dot text-lg sm:text-xl"></i></div>
@@ -964,12 +1012,17 @@
                                             <p className="text-[10px] sm:text-sm text-slate-400">Compara el comportamiento del PHMR contra las Nebulizaciones (N) y Termonebulizaciones (T).</p>
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-2 sm:gap-3 bg-slate-950 p-1.5 sm:p-2 rounded-lg border border-slate-700 w-full md:w-auto">
-                                        <i className="fa-solid fa-filter text-slate-500 pl-2 sm:pl-3"></i>
-                                        <select className="bg-transparent text-white font-bold text-xs sm:text-sm outline-none cursor-pointer w-full md:w-64 truncate py-1" value={trendSector} onChange={(e) => setTrendSector(e.target.value)}>
-                                            <option value="Global" className="bg-slate-900 font-black text-cyan-400">🌍 PROMEDIO GLOBAL (SIN SECTOR)</option>
-                                            {allSectorsList.map(sec => <option key={sec} value={sec} className="bg-slate-900">{sec}</option>)}
-                                        </select>
+                                    <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-3 w-full md:w-auto">
+                                        <div className="flex items-center gap-2 sm:gap-3 bg-slate-950 p-1.5 sm:p-2 rounded-lg border border-slate-700 w-full md:w-auto">
+                                            <i className="fa-solid fa-filter text-slate-500 pl-2 sm:pl-3"></i>
+                                            <select className="bg-transparent text-white font-bold text-xs sm:text-sm outline-none cursor-pointer w-full md:w-64 truncate py-1" value={trendSector} onChange={(e) => setTrendSector(e.target.value)}>
+                                                <option value="Global" className="bg-slate-900 font-black text-cyan-400">🌍 PROMEDIO GLOBAL (SIN SECTOR)</option>
+                                                {allSectorsList.map(sec => <option key={sec} value={sec} className="bg-slate-900">{sec}</option>)}
+                                            </select>
+                                        </div>
+                                        <button onClick={descargarGraficoTendencias} className="w-full sm:w-auto flex justify-center items-center gap-2 bg-slate-800 hover:bg-slate-700 text-cyan-400 text-[10px] sm:text-xs font-bold px-3 py-2 sm:py-2.5 rounded-lg border border-slate-700 transition-colors shadow-sm whitespace-nowrap">
+                                            <i className="fa-solid fa-download"></i> Descargar Gráfico
+                                        </button>
                                     </div>
                                 </div>
 
@@ -979,12 +1032,25 @@
                                         <p className="text-center px-4 text-xs sm:text-sm">Se requieren al menos 2 semanas de datos para mostrar la comparativa operativa.</p>
                                     </div>
                                 ) : (
-                                    <div className="h-[300px] sm:h-[400px] w-full mt-4 sm:mt-8">
+                                    <div className="h-[350px] sm:h-[450px] w-full mt-4 sm:mt-8 relative" ref={chartContainerRef}>
                                         <ResponsiveContainer width="100%" height="100%">
-                                            <LineChart data={chartTrendData} margin={{ top: 30, right: 10, left: -20, bottom: 0 }}>
+                                            <LineChart data={chartTrendData} margin={{ top: 30, right: 10, left: 10, bottom: 25 }}>
                                                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                                                <XAxis dataKey="semana" stroke="#64748b" tick={{fill: '#94a3b8', fontSize: 10}} axisLine={false} tickLine={false} />
-                                                <YAxis stroke="#64748b" tick={{fill: '#94a3b8', fontSize: 10}} axisLine={false} tickLine={false} />
+                                                <XAxis 
+                                                    dataKey="semana" 
+                                                    stroke="#64748b" 
+                                                    tick={{fill: '#94a3b8', fontSize: 10}} 
+                                                    axisLine={false} 
+                                                    tickLine={false} 
+                                                    label={{ value: 'Semana Epidemiológica', position: 'insideBottom', offset: -20, fill: '#94a3b8', fontSize: 12, fontWeight: 'bold' }}
+                                                />
+                                                <YAxis 
+                                                    stroke="#64748b" 
+                                                    tick={{fill: '#94a3b8', fontSize: 10}} 
+                                                    axisLine={false} 
+                                                    tickLine={false} 
+                                                    label={{ value: 'PHMR', angle: -90, position: 'insideLeft', offset: 10, fill: '#94a3b8', fontSize: 12, fontWeight: 'bold', style: { textAnchor: 'middle' } }}
+                                                />
                                                 <RechartsTooltip content={<CustomTrendTooltip />} cursor={{ stroke: '#334155', strokeWidth: 2, strokeDasharray: '5 5' }} />
                                                 <Legend verticalAlign="top" height={36} wrapperStyle={{ paddingBottom: '20px', fontSize: '12px' }}/>
                                                 
@@ -1009,6 +1075,18 @@
                                                         activeDot={{r: 0}} 
                                                     />
                                                 )}
+
+                                                <Line 
+                                                    type="monotone" 
+                                                    dataKey="PHMR_Historico" 
+                                                    name="PHMR Año Pasado" 
+                                                    stroke="#475569" 
+                                                    strokeWidth={2} 
+                                                    strokeDasharray="3 4" 
+                                                    dot={false} 
+                                                    activeDot={{r: 4}} 
+                                                    opacity={0.6} 
+                                                />
                                             </LineChart>
                                         </ResponsiveContainer>
                                     </div>
@@ -1094,7 +1172,7 @@
                                         </div>
                                     </div>
 
-                                    <MapaInteractivo data={mapDataWithSectorRisk} onMarkerClick={setSelectedHotspot} mapStyle={mapStyle} isFullscreen={isFullscreen} maxHuevos={maxHuevosSemana} />
+                                    <MapaInteractivo data={mapDataWithSectorRisk} onMarkerClick={setSelectedHotspot} mapStyle={mapStyle} isFullscreen={isFullscreen} maxHuevos={maxHuevosSemana} sectorToFocus={sectorToFocus} />
                                 </div>
                             ) : (
                                 <div className="h-full overflow-y-auto bg-slate-900/50 rounded-xl border border-slate-800">
@@ -1111,11 +1189,14 @@
                                         </thead>
                                         <tbody className="divide-y divide-slate-800/50 text-[10px] sm:text-xs">
                                             {datosPorSector.map((sector, idx) => (
-                                                <tr key={idx} className="hover:bg-slate-800/30 transition-colors">
-                                                    <td className="p-2 sm:p-3 font-medium text-white">
-                                                        <div className="text-xs sm:text-base">{sector.nombre}</div>
+                                                <tr key={idx} className="hover:bg-slate-800/50 transition-colors cursor-pointer group" onClick={() => enfocarSectorEnMapa(sector.nombre)} title="Ver en el mapa">
+                                                    <td className="p-2 sm:p-3 font-medium text-white relative">
+                                                        <div className="flex items-center gap-2">
+                                                            <i className="fa-solid fa-location-crosshairs text-cyan-500 opacity-0 group-hover:opacity-100 transition-opacity absolute left-0"></i>
+                                                            <div className="text-xs sm:text-base group-hover:pl-4 transition-all">{sector.nombre}</div>
+                                                        </div>
                                                         {/* TOP 3 MANZANAS DE ESTE SECTOR */}
-                                                        <div className="mt-1 flex flex-wrap gap-1 sm:gap-1.5">
+                                                        <div className="mt-1 flex flex-wrap gap-1 sm:gap-1.5 group-hover:pl-4 transition-all">
                                                             <span className="text-[8px] sm:text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">Top:</span>
                                                             {sector.topManzanas && sector.topManzanas.map((tm, i) => (
                                                                 <span key={i} className="text-[8px] sm:text-[10px] bg-rose-500/10 text-rose-300 border border-rose-500/30 px-1 sm:px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap">
@@ -1231,4 +1312,3 @@
     </script>
 </body>
 </html>
-              
