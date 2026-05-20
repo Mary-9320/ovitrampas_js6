@@ -25,6 +25,8 @@
     <!-- LEAFLET (Mapas Reales) -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Plugin de Mapa de Calor (Heatmap) -->
+    <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
     
     <!-- Babel -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -134,6 +136,7 @@
             const mapInstance = useRef(null);
             const tileLayerInstance = useRef(null);
             const markerGroupInstance = useRef(null);
+            const heatLayerInstance = useRef(null);
 
             useEffect(() => {
                 if (!mapInstance.current && mapRef.current) {
@@ -144,12 +147,23 @@
                     
                     markerGroupInstance.current = L.layerGroup().addTo(mapInstance.current);
                 }
+
+                // Limpieza del mapa al desmontar el componente para evitar errores de redibujado
+                return () => {
+                    if (mapInstance.current) {
+                        mapInstance.current.remove();
+                        mapInstance.current = null;
+                    }
+                };
             }, []);
 
             useEffect(() => {
                 if (mapInstance.current) {
                     setTimeout(() => {
-                        mapInstance.current.invalidateSize();
+                        // Verificamos que el contenedor tenga tamaño antes de invalidarlo
+                        if (mapInstance.current && mapRef.current && mapRef.current.clientWidth > 0 && mapRef.current.clientHeight > 0) {
+                            mapInstance.current.invalidateSize();
+                        }
                     }, 300);
                 }
             }, [isFullscreen]);
@@ -173,16 +187,6 @@
                 }).addTo(mapInstance.current);
             }, [mapStyle]);
 
-            const getColorForEggs = (huevos, maxLimit) => {
-                if (huevos === 0) return '#00d4ff'; 
-                const ratio = maxLimit > 0 ? huevos / maxLimit : 0;
-                if (ratio <= 0.2) return '#00e676'; 
-                if (ratio <= 0.4) return '#76ff03'; 
-                if (ratio <= 0.6) return '#ffea00'; 
-                if (ratio <= 0.8) return '#ff9100'; 
-                return '#ff1744'; 
-            };
-
             // Efecto para centrar cuando se selecciona un sector desde la tabla
             useEffect(() => {
                 if (sectorToFocus && mapInstance.current && data && data.length > 0) {
@@ -200,25 +204,31 @@
             }, [sectorToFocus, data]);
 
             useEffect(() => {
+                let isMounted = true;
+
+                if (heatLayerInstance.current && mapInstance.current) {
+                    mapInstance.current.removeLayer(heatLayerInstance.current);
+                    heatLayerInstance.current = null;
+                }
                 if (markerGroupInstance.current) {
                     markerGroupInstance.current.clearLayers(); 
                 }
 
                 if (data && data.length > 0 && mapInstance.current && markerGroupInstance.current) {
                     const bounds = L.latLngBounds();
+                    const heatData = [];
                     
                     data.forEach(punto => {
                         if (punto.y && punto.x) {
-                            const riskClass = punto.sectorRiesgo.toLowerCase();
-                            const markerColor = getColorForEggs(punto.huevos, maxHuevos);
-                            const markerRadius = punto.huevos === 0 ? 5 : Math.min(35, 6 + ((punto.huevos / maxHuevos) * 25));
+                            // 1. Añadir datos al Heatmap (Lat, Lng, Intensidad)
+                            heatData.push([punto.y, punto.x, punto.huevos]);
 
-                            const marker = L.marker([punto.y, punto.x], {
-                                icon: L.divIcon({
-                                    className: `hotspot-marker hotspot-${riskClass}`,
-                                    iconSize: [markerRadius * 2, markerRadius * 2],
-                                    iconAnchor: [markerRadius, markerRadius]
-                                })
+                            // 2. Crear un marcador INVISIBLE encima para no perder los clics/popups
+                            const marker = L.circleMarker([punto.y, punto.x], {
+                                radius: 15,
+                                color: 'transparent',
+                                fillColor: 'transparent',
+                                fillOpacity: 0
                             }).addTo(markerGroupInstance.current);
 
                             const colorHex = punto.sectorRiesgo === 'Crítico' ? '#f43f5e' : punto.sectorRiesgo === 'Alto' ? '#fb923c' : '#0891b2';
@@ -239,11 +249,47 @@
                         }
                     });
                     
-                    if (bounds.isValid() && !sectorToFocus) {
-                        mapInstance.current.fitBounds(bounds, { padding: [30, 30] });
-                    }
+                    const createAndAddHeatLayer = () => {
+                        if (!isMounted || !mapInstance.current) return;
+                        
+                        // Verificación rigurosa del tamaño del contenedor para prevenir fallas de CanvasRenderingContext2D
+                        const size = mapInstance.current.getSize();
+                        if (size.x === 0 || size.y === 0) {
+                            setTimeout(createAndAddHeatLayer, 100);
+                            return;
+                        }
+
+                        if (heatLayerInstance.current) {
+                            mapInstance.current.removeLayer(heatLayerInstance.current);
+                        }
+
+                        // 3. Renderizar la capa de Mapa de Calor con configuración térmica (Estilo foto 2)
+                        heatLayerInstance.current = L.heatLayer(heatData, {
+                            radius: 25,
+                            blur: 35,
+                            maxZoom: 15,
+                            max: maxHuevos > 0 ? maxHuevos : 1, // Normalizamos el calor vs huevecillos maximos de la semana
+                            gradient: {
+                                0.2: '#4a0082', // Morado oscuro (bajo)
+                                0.4: '#c80064', // Magenta
+                                0.6: '#ff0000', // Rojo
+                                0.8: '#ff8c00', // Naranja
+                                1.0: '#ffff88'  // Amarillo brillante (foco máximo)
+                            }
+                        }).addTo(mapInstance.current);
+
+                        if (bounds.isValid() && !sectorToFocus) {
+                            mapInstance.current.fitBounds(bounds, { padding: [30, 30] });
+                        }
+                    };
+
+                    createAndAddHeatLayer();
                 }
-            }, [data, maxHuevos, sectorToFocus]);
+
+                return () => {
+                    isMounted = false;
+                };
+            }, [data, maxHuevos, sectorToFocus, onMarkerClick]);
 
             return <div ref={mapRef} style={{ width: '100%', height: '100%', borderRadius: isFullscreen ? '0' : '0.75rem', zIndex: 1 }}></div>;
         }
@@ -1160,7 +1206,8 @@
                                     <div className="absolute top-2 sm:top-4 right-2 sm:right-4 z-[400] bg-[#e5e5e5] text-slate-800 p-2 sm:p-2.5 rounded-lg shadow-xl pointer-events-none flex flex-col w-24 sm:w-32 border border-slate-300">
                                         <span className="text-[9px] sm:text-[11px] font-bold mb-1.5 sm:mb-2 text-center text-slate-700 leading-tight">Número de Huevos</span>
                                         <div className="flex h-24 sm:h-32 gap-2 sm:gap-3 items-center justify-center">
-                                            <div className="w-2.5 sm:w-3.5 h-full rounded shadow-inner" style={{ background: 'linear-gradient(to top, #ff1744 0%, #ff9100 20%, #ffea00 40%, #76ff03 60%, #00e676 80%, #00d4ff 100%)' }}></div>
+                                            {/* Nuevo Gradiente Lineal Sincronizado con el Heatmap */}
+                                            <div className="w-2.5 sm:w-3.5 h-full rounded shadow-inner" style={{ background: 'linear-gradient(to top, transparent 0%, #4a0082 20%, #c80064 40%, #ff0000 60%, #ff8c00 80%, #ffff88 100%)' }}></div>
                                             <div className="flex flex-col justify-between text-[9px] sm:text-[11px] font-bold h-full py-0 text-slate-600">
                                                 <span>{Math.round(maxHuevosSemana)}</span>
                                                 <span>{Math.round(maxHuevosSemana * 0.8)}</span>
