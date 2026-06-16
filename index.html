@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -5,33 +6,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Ovitrampas JS6 </title>
     
-    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- FontAwesome para los íconos -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- React & ReactDOM (Versiones fijas) -->
     <script crossorigin src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
     
-    <!-- Dependencias Clave -->
     <script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-is@18.2.0/umd/react-is.production.min.js"></script>
     
-    <!-- html2canvas para descargar como imagen -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     
-    <!-- LEAFLET (Mapas Reales) -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <!-- Plugin de Mapa de Calor (Heatmap) -->
     <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
     
-    <!-- Babel -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.23.0/babel.min.js"></script>
     
-    <!-- Recharts -->
     <script src="https://unpkg.com/recharts@2.1.9/umd/Recharts.js"></script>
 
     <style>
@@ -117,7 +109,7 @@
         const HECTARES_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSaICLfEhy8zhFI2eoY1hygCKY7Dcg4PPyTEPWL_1kEz-_qO3WMER0WP4xE08pUeh7kH2QK0VZ7dEEg/pub?gid=1074577602&single=true&output=csv';
         const ACTIONS_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSaICLfEhy8zhFI2eoY1hygCKY7Dcg4PPyTEPWL_1kEz-_qO3WMER0WP4xE08pUeh7kH2QK0VZ7dEEg/pub?gid=1158730377&single=true&output=csv';
 
-        // --- DICCIONARIO HISTORICO AÑO PASADO (MOCK BASADO EN IMAGEN DE TENDENCIA) ---
+        // --- DICCIONARIO HISTORICO AÑO PASADO ---
         const HISTORICO_PHMR_ANIO_PASADO = {
             "1": 54.22, "2": 81.68, "3": 40.23, "4": 23.43, "5": 18.19, "6": 28.03, "7": 21.23, "8": 26.35, "9": 22.45, "10": 34.31,
             "11": 31.80, "12": 35.65, "13": 47.81, "14": 51.45, "15": 47.19, "16": 58.67, "17": 62.56, "18": 56.94, "19": 63.12, "20": 73.73,
@@ -129,6 +121,65 @@
 
         const { useState, useEffect, useMemo, useRef } = React;
         const { ScatterChart, Scatter, ZAxis, XAxis, YAxis, Tooltip: RechartsTooltip, ResponsiveContainer, Cell, LineChart, Line, AreaChart, Area, CartesianGrid, Legend } = window.Recharts;
+
+        // --- FUNCIONES EXTRAÍDAS PARA OPTIMIZAR RENDIMIENTO ---
+        const CustomTrendDot = (props) => {
+            const { cx, cy, payload, dataKey } = props;
+            if (!payload) return null;
+            
+            if (dataKey === "PHMR_Sector" && payload.hasAction && payload.accionInfo) {
+                const actionName = payload.accionInfo.accion.toLowerCase();
+                const isTermo = actionName.includes('termo');
+                const color = isTermo ? '#f97316' : '#a855f7'; 
+                const letter = isTermo ? 'T' : 'N';
+                const appNumber = payload.accionInfo.aplicacion;
+                
+                return (
+                    <g>
+                        <circle cx={cx} cy={cy} r={12} fill={color} stroke="#020617" strokeWidth={2} />
+                        <text x={cx} y={cy} textAnchor="middle" dy={4} fill="#fff" fontSize={11} fontWeight="black">{letter}{appNumber}</text>
+                        <text x={cx} y={cy - 18} textAnchor="middle" fill={color} fontSize={10} fontWeight="bold">{isTermo ? 'Termonebulización' : 'Nebulización'}</text>
+                    </g>
+                );
+            }
+            
+            if (dataKey === "PHMR_Sector" && payload.PHMR_Sector !== null) {
+                return <circle cx={cx} cy={cy} r={6} fill="#f43f5e" stroke="#020617" strokeWidth={2} />;
+            }
+            return null;
+        };
+
+        const CustomTrendTooltip = ({ active, payload, label }) => {
+            if (active && payload && payload.length) {
+                const data = payload[0].payload;
+                return (
+                    <div className="bg-slate-900 border border-slate-700 p-3 rounded-xl shadow-2xl text-xs z-50 max-w-[200px] sm:max-w-none">
+                        <p className="text-white font-bold mb-2 border-b border-slate-700 pb-1 text-sm">{label}</p>
+                        {payload.map(entry => (
+                            entry.value !== null && entry.value !== undefined && (
+                                <p key={entry.dataKey} style={{color: entry.color}} className="font-semibold my-1 text-sm">
+                                    {entry.name}: {entry.value}
+                                </p>
+                            )
+                        ))}
+                        
+                        {data.hasAction && data.accionInfo && (
+                            <div className="mt-3 pt-2 border-t border-slate-700 bg-slate-800/80 p-2.5 rounded-lg border-l-4 border-l-cyan-400">
+                                <p className="text-cyan-400 font-bold mb-1.5"><i className="fa-solid fa-truck-fast"></i> Acción Operativa</p>
+                                <p className="text-slate-300"><b>Tipo:</b> {data.accionInfo.accion}</p>
+                                <p className="text-slate-300"><b>Aplicación N°:</b> <span className="bg-slate-950 px-1.5 py-0.5 rounded border border-slate-700 text-white font-bold">{data.accionInfo.aplicacion}</span></p>
+                            </div>
+                        )}
+                    </div>
+                );
+            }
+            return null;
+        };
+
+        const splitCSVRowSafe = (row) => {
+            // Separa por comas, ignorando las comas dentro de las comillas dobles
+            return row.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(col => col.replace(/^"|"$/g, '').trim());
+        };
 
         // --- COMPONENTE DEL MAPA REAL (LEAFLET) ---
         function MapaInteractivo({ data, onMarkerClick, mapStyle, isFullscreen, maxHuevos, sectorToFocus }) {
@@ -148,7 +199,6 @@
                     markerGroupInstance.current = L.layerGroup().addTo(mapInstance.current);
                 }
 
-                // Limpieza del mapa al desmontar el componente para evitar errores de redibujado
                 return () => {
                     if (mapInstance.current) {
                         mapInstance.current.remove();
@@ -160,7 +210,6 @@
             useEffect(() => {
                 if (mapInstance.current) {
                     setTimeout(() => {
-                        // Verificamos que el contenedor tenga tamaño antes de invalidarlo
                         if (mapInstance.current && mapRef.current && mapRef.current.clientWidth > 0 && mapRef.current.clientHeight > 0) {
                             mapInstance.current.invalidateSize();
                         }
@@ -176,21 +225,19 @@
                 }
 
                 let url = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
-                let bgColor = '#020617'; // Fondo oscuro por defecto
+                let bgColor = '#020617'; 
 
                 if (mapStyle === 'claro') {
                     url = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
-                    bgColor = '#f8fafc'; // Fondo claro
+                    bgColor = '#f8fafc'; 
                 } else if (mapStyle === 'satelite') {
                     url = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-                    bgColor = '#111111'; // Fondo oscuro para satélite
+                    bgColor = '#111111'; 
                 } else if (mapStyle === 'calles') {
-                    // Nuevo proveedor ArcGIS World Street Map (Muestra colonias y gran detalle)
                     url = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
-                    bgColor = '#f4f4f4'; // Fondo gris claro para calles
+                    bgColor = '#f4f4f4'; 
                 }
 
-                // Cambiar el color de fondo dinámicamente para evitar huecos negros si el internet falla
                 if (mapRef.current) {
                     mapRef.current.style.backgroundColor = bgColor;
                 }
@@ -202,7 +249,6 @@
                 }).addTo(mapInstance.current);
             }, [mapStyle]);
 
-            // Efecto para centrar cuando se selecciona un sector desde la tabla
             useEffect(() => {
                 if (sectorToFocus && mapInstance.current && data && data.length > 0) {
                     const sectorPoints = data.filter(p => `${p.municipio} - Sector ${p.sector}` === sectorToFocus);
@@ -235,10 +281,8 @@
                     
                     data.forEach(punto => {
                         if (punto.y && punto.x) {
-                            // 1. Añadir datos al Heatmap (Lat, Lng, Intensidad)
                             heatData.push([punto.y, punto.x, punto.huevos]);
 
-                            // 2. Crear un marcador INVISIBLE encima para no perder los clics/popups
                             const marker = L.circleMarker([punto.y, punto.x], {
                                 radius: 15,
                                 color: 'transparent',
@@ -259,7 +303,6 @@
                             marker.bindPopup(popupContent);
                             marker.on('click', () => { if(onMarkerClick) onMarkerClick(punto); });
                             
-                            // Si hay sectorToFocus, no ajustamos bounds aquí para no sobreescribir el flyToBounds
                             if (!sectorToFocus) bounds.extend([punto.y, punto.x]);
                         }
                     });
@@ -267,7 +310,6 @@
                     const createAndAddHeatLayer = () => {
                         if (!isMounted || !mapInstance.current) return;
                         
-                        // Verificación rigurosa del tamaño del contenedor para prevenir fallas de CanvasRenderingContext2D
                         const size = mapInstance.current.getSize();
                         if (size.x === 0 || size.y === 0) {
                             setTimeout(createAndAddHeatLayer, 100);
@@ -278,18 +320,13 @@
                             mapInstance.current.removeLayer(heatLayerInstance.current);
                         }
 
-                        // 3. Renderizar la capa de Mapa de Calor con configuración térmica (Estilo foto 2)
                         heatLayerInstance.current = L.heatLayer(heatData, {
                             radius: 25,
                             blur: 35,
                             maxZoom: 15,
-                            max: maxHuevos > 0 ? maxHuevos : 1, // Normalizamos el calor vs huevecillos maximos de la semana
+                            max: maxHuevos > 0 ? maxHuevos : 1, 
                             gradient: {
-                                0.2: '#4a0082', // Morado oscuro (bajo)
-                                0.4: '#c80064', // Magenta
-                                0.6: '#ff0000', // Rojo
-                                0.8: '#ff8c00', // Naranja
-                                1.0: '#ffff88'  // Amarillo brillante (foco máximo)
+                                0.2: '#4a0082', 0.4: '#c80064', 0.6: '#ff0000', 0.8: '#ff8c00', 1.0: '#ffff88'  
                             }
                         }).addTo(mapInstance.current);
 
@@ -332,14 +369,13 @@
 
             const [selectedHotspot, setSelectedHotspot] = useState(null);
             const [mapViewMode, setMapViewMode] = useState('puntos'); 
-            const [sectorToFocus, setSectorToFocus] = useState(null); // Nuevo estado para enfocar
+            const [sectorToFocus, setSectorToFocus] = useState(null);
             
             const [trendSector, setTrendSector] = useState('Global');
 
             const mapContainerRef = useRef(null);
-            const chartContainerRef = useRef(null); // Referencia para el gráfico de tendencias
+            const chartContainerRef = useRef(null);
 
-            // --- LÓGICA DE SINCRONIZACIÓN AUTOMÁTICA BLINDADA ---
             const fetchSafe = async (url) => {
                 try {
                     const response = await fetch(url);
@@ -404,21 +440,21 @@
                 }
             }, [manualMode]);
 
-            // --- PARSERS DE CSV ---
+            // --- PARSERS DE CSV CON EXPRESIÓN REGULAR SEGURA ---
             const parseActionsCSV = (csvText) => {
-                const cleanText = csvText.replace(/["\r]/g, ''); 
+                const cleanText = csvText.replace(/[\r]/g, ''); 
                 const rows = cleanText.split('\n');
                 if(rows.length <= 1) return {};
                 
                 let headerRowIndex = 0;
-                for(let i=0; i<Math.min(10, rows.length); i++){
+                for(let i=0; i<Math.min(30, rows.length); i++){
                     const rowLower = rows[i].toLowerCase();
                     if(rowLower.includes('sector') && (rowLower.includes('semana') || rowLower.includes('se '))) {
                         headerRowIndex = i; break;
                     }
                 }
                 
-                const headers = rows[headerRowIndex].split(',').map(h => h.trim().toLowerCase());
+                const headers = splitCSVRowSafe(rows[headerRowIndex]).map(h => h.toLowerCase());
                 const secIdx = headers.findIndex(h => h === 'sector' || h.includes('sector'));
                 const semIdx = headers.findIndex(h => h === 'semana' || h.includes('semana') || h === 'se' || h.includes('epidemiologica'));
                 const actIdx = headers.findIndex(h => h.includes('accion') || h.includes('tipo') || h.includes('actividad') || h.includes('nebu'));
@@ -428,16 +464,16 @@
                 const catalog = {};
                 if (secIdx !== -1 && semIdx !== -1) {
                     for(let i = headerRowIndex + 1; i < rows.length; i++) {
-                        const cols = rows[i].split(',');
+                        const cols = splitCSVRowSafe(rows[i]);
                         if(cols.length > Math.max(secIdx, semIdx)) {
                             const muniRaw = muniIdx !== -1 ? (cols[muniIdx] || '').toLowerCase() : 'cadereyta';
                             if (muniRaw.includes('cadereyta') || muniIdx === -1) {
-                                const sectorRaw = cols[secIdx]?.trim();
-                                const semanaRaw = cols[semIdx]?.trim();
+                                const sectorRaw = cols[secIdx];
+                                const semanaRaw = cols[semIdx];
                                 const sector = isNaN(parseInt(sectorRaw, 10)) ? sectorRaw : parseInt(sectorRaw, 10).toString();
                                 const semana = isNaN(parseInt(semanaRaw, 10)) ? semanaRaw : parseInt(semanaRaw, 10).toString();
                                 
-                                const rawAction = actIdx !== -1 ? cols[actIdx]?.trim().toLowerCase() : '';
+                                const rawAction = actIdx !== -1 ? (cols[actIdx] || '').toLowerCase() : '';
                                 let accion = 'Nebulización'; 
                                 if (rawAction.includes('termo')) {
                                     accion = 'Termonebulización';
@@ -447,7 +483,7 @@
                                     accion = rawAction.charAt(0).toUpperCase() + rawAction.slice(1);
                                 }
                                 
-                                const aplicacion = appIdx !== -1 ? cols[appIdx]?.trim() : '1';
+                                const aplicacion = appIdx !== -1 ? (cols[appIdx] || '1') : '1';
                                 
                                 if(sector && semana) {
                                     catalog[`${sector}-${semana}`] = { accion, aplicacion };
@@ -460,19 +496,19 @@
             };
 
             const parseHectaresCSV = (csvText) => {
-                const cleanText = csvText.replace(/["\r]/g, '');
+                const cleanText = csvText.replace(/[\r]/g, '');
                 const rows = cleanText.split('\n');
                 if(rows.length <= 1) return {};
                 
                 let headerRowIndex = 0;
-                for(let i=0; i<Math.min(5, rows.length); i++){
+                for(let i=0; i<Math.min(30, rows.length); i++){
                     const rowLower = rows[i].toLowerCase();
                     if(rowLower.includes('sector') && rowLower.includes('manzana')) {
                         headerRowIndex = i; break;
                     }
                 }
                 
-                const headers = rows[headerRowIndex].split(',').map(h => h.trim().toLowerCase());
+                const headers = splitCSVRowSafe(rows[headerRowIndex]).map(h => h.toLowerCase());
                 const secIdx = headers.findIndex(h => h.includes('sector'));
                 const mznIdx = headers.findIndex(h => h.includes('manzana') || h.includes('mzn'));
                 const haIdx = headers.findIndex(h => h.includes('hectarea') || h.includes('hectárea') || h.includes('ha') || h.includes('superficie'));
@@ -480,11 +516,11 @@
                 const catalog = {};
                 if (secIdx !== -1 && mznIdx !== -1 && haIdx !== -1) {
                     for(let i = headerRowIndex + 1; i < rows.length; i++) {
-                        const cols = rows[i].split(',');
+                        const cols = splitCSVRowSafe(rows[i]);
                         if(cols.length > Math.max(secIdx, mznIdx, haIdx)) {
-                            const sectorRaw = cols[secIdx]?.trim();
-                            const manzanaRaw = cols[mznIdx]?.trim();
-                            const haRaw = cols[haIdx]?.trim();
+                            const sectorRaw = cols[secIdx];
+                            const manzanaRaw = cols[mznIdx];
+                            const haRaw = cols[haIdx];
                             
                             const sector = isNaN(parseInt(sectorRaw, 10)) ? sectorRaw : parseInt(sectorRaw, 10).toString();
                             const manzana = isNaN(parseInt(manzanaRaw, 10)) ? manzanaRaw : parseInt(manzanaRaw, 10).toString();
@@ -500,17 +536,17 @@
             };
 
             const parseGeoCSV = (csvText) => {
-                const cleanText = csvText.replace(/["\r]/g, '');
+                const cleanText = csvText.replace(/[\r]/g, '');
                 const rows = cleanText.split('\n');
                 let headerRowIndex = 0;
-                for (let i = 0; i < Math.min(10, rows.length); i++) {
+                for (let i = 0; i < Math.min(30, rows.length); i++) {
                     const rowLower = rows[i].toLowerCase();
                     if (rowLower.includes('ovitrampa') || rowLower.includes('clave') || rowLower.includes('lat') || rowLower.includes('posicion_x')) {
                         headerRowIndex = i;
                         break;
                     }
                 }
-                const headers = rows[headerRowIndex].split(',').map(h => h.trim().toLowerCase());
+                const headers = splitCSVRowSafe(rows[headerRowIndex]).map(h => h.toLowerCase());
                 const xIdx = headers.findIndex(h => h === 'pocision_x' || h === 'posicion_x' || h === 'x' || h.includes('long'));
                 const yIdx = headers.findIndex(h => h === 'pocision_y' || h === 'posicion_y' || h === 'y' || h.includes('lat'));
                 
@@ -520,12 +556,12 @@
                 
                 const catalog = {};
                 for(let i = headerRowIndex + 1; i < rows.length; i++) {
-                    const cols = rows[i].split(',');
+                    const cols = splitCSVRowSafe(rows[i]);
                     if(cols.length > Math.max(xIdx, yIdx, oviIdx) && oviIdx !== -1) {
-                        const rawId = cols[oviIdx]?.trim();
+                        const rawId = cols[oviIdx];
                         const id = isNaN(parseInt(rawId, 10)) ? rawId : parseInt(rawId, 10).toString();
-                        const x = parseFloat(cols[xIdx]?.trim().replace(',', '.'));
-                        const y = parseFloat(cols[yIdx]?.trim().replace(',', '.'));
+                        const x = parseFloat((cols[xIdx] || '').replace(',', '.'));
+                        const y = parseFloat((cols[yIdx] || '').replace(',', '.'));
                         
                         if(id && !isNaN(x) && !isNaN(y)) catalog[id] = { x, y };
                     }
@@ -534,12 +570,12 @@
             };
 
             const parseReadingsCSV = (csvText, catalog) => {
-                const cleanText = csvText.replace(/["\r]/g, '');
+                const cleanText = csvText.replace(/[\r]/g, '');
                 const rows = cleanText.split('\n');
                 if(rows.length <= 1) throw new Error("El archivo de Lecturas está vacío.");
                 
                 let headerRowIndex = -1;
-                for (let i = 0; i < Math.min(15, rows.length); i++) {
+                for (let i = 0; i < Math.min(30, rows.length); i++) {
                     const rowLower = rows[i].toLowerCase();
                     if (rowLower.includes('ovitrampa') && rowLower.includes('huevecillos') && rowLower.includes('semana epidemiologica')) {
                         headerRowIndex = i;
@@ -551,7 +587,7 @@
                     throw new Error("⚠️ Formato incorrecto. Asegúrate de que el documento de lecturas tenga las columnas 'Ovitrampa', 'Huevecillos' y 'Semana Epidemiologica'.");
                 }
 
-                const headers = rows[headerRowIndex].split(',').map(h => h.trim().toLowerCase());
+                const headers = splitCSVRowSafe(rows[headerRowIndex]).map(h => h.toLowerCase());
                 
                 const oviIdx = headers.findIndex(h => h === 'ovitrampa');
                 const huevosIdx = headers.findIndex(h => h === 'huevecillos');
@@ -563,18 +599,18 @@
                 const weeksData = {};
 
                 for(let i = headerRowIndex + 1; i < rows.length; i++) {
-                    const cols = rows[i].split(',');
+                    const cols = splitCSVRowSafe(rows[i]);
                     if(oviIdx !== -1 && huevosIdx !== -1 && cols.length > Math.max(oviIdx, huevosIdx)) {
-                        const rawId = cols[oviIdx]?.trim();
+                        const rawId = cols[oviIdx];
                         const id = isNaN(parseInt(rawId, 10)) ? rawId : parseInt(rawId, 10).toString();
-                        const huevosStr = cols[huevosIdx]?.trim();
+                        const huevosStr = cols[huevosIdx];
                         
                         if(!id || huevosStr === undefined || huevosStr === '') continue;
                         
                         const huevos = parseInt(huevosStr, 10);
                         if(isNaN(huevos)) continue;
                         
-                        const semanaRaw = semIdx !== -1 ? cols[semIdx]?.trim() : 'S/N';
+                        const semanaRaw = semIdx !== -1 ? cols[semIdx] : 'S/N';
                         const semana = (semanaRaw && semanaRaw !== '') ? semanaRaw : 'S/N';
 
                         if (!weeksData[semana]) {
@@ -589,9 +625,9 @@
                         if (huevos > 0) weekObj.positivas++;
                         weekObj.totalHuevos += huevos;
 
-                        const sectorRaw = sectorIdx !== -1 ? cols[sectorIdx]?.trim() : 'S/N';
-                        const manzanaRaw = mznIdx !== -1 ? cols[mznIdx]?.trim() : 'S/N';
-                        const muni = muniIdx !== -1 ? cols[muniIdx]?.trim() : 'Sector';
+                        const sectorRaw = sectorIdx !== -1 ? cols[sectorIdx] : 'S/N';
+                        const manzanaRaw = mznIdx !== -1 ? cols[mznIdx] : 'S/N';
+                        const muni = muniIdx !== -1 ? cols[muniIdx] : 'Sector';
                         
                         const sector = isNaN(parseInt(sectorRaw, 10)) ? sectorRaw : parseInt(sectorRaw, 10).toString();
                         const manzana = isNaN(parseInt(manzanaRaw, 10)) ? manzanaRaw : parseInt(manzanaRaw, 10).toString();
@@ -705,10 +741,8 @@
             const datosPorSector = dataSemanaActual?.datosPorSector || [];
             const isWeeklyLoaded = Object.keys(historialSemanas).length > 0;
 
-            // --- PROTECCIÓN DE MEMORIA STACK OVERFLOW ---
             const maxHuevosSemana = useMemo(() => {
                 if (!gridData || gridData.length === 0) return 250;
-                // Usamos reduce en lugar de Math.max(...array) para no saturar la memoria si hay miles de datos
                 const max = gridData.reduce((acc, curr) => curr.huevos > acc ? curr.huevos : acc, 0);
                 return max > 0 ? max : 250; 
             }, [gridData]);
@@ -740,7 +774,6 @@
                 return Array.from(set).sort();
             }, [historialSemanas]);
 
-            // --- LÓGICA DE GRÁFICA DE TENDENCIAS Y ACCIONES OPERATIVAS ---
             const chartTrendData = useMemo(() => {
                 const semanasOrdenadas = Object.keys(historialSemanas).filter(k => k !== 'S/N').sort((a,b) => parseInt(a) - parseInt(b));
                 
@@ -766,65 +799,12 @@
                         semana: `SE ${sem}`,
                         PHMR_Global: weekData.statsGlobales.phmrGlobal,
                         PHMR_Sector: sectorData ? sectorData.phmr : null,
-                        PHMR_Historico: HISTORICO_PHMR_ANIO_PASADO[sem] || null, // AÑADIDO EL DATO HISTÓRICO AL GRÁFICO
+                        PHMR_Historico: HISTORICO_PHMR_ANIO_PASADO[sem] || null, 
                         hasAction: !!actionInfo,
                         accionInfo: actionInfo
                     };
                 });
             }, [historialSemanas, trendSector, actionsCatalog]);
-
-            const CustomTrendDot = (props) => {
-                const { cx, cy, payload, dataKey } = props;
-                if (!payload) return null;
-                
-                if (dataKey === "PHMR_Sector" && payload.hasAction && payload.accionInfo) {
-                    const actionName = payload.accionInfo.accion.toLowerCase();
-                    const isTermo = actionName.includes('termo');
-                    const color = isTermo ? '#f97316' : '#a855f7'; 
-                    const letter = isTermo ? 'T' : 'N';
-                    const appNumber = payload.accionInfo.aplicacion;
-                    
-                    return (
-                        <g>
-                            <circle cx={cx} cy={cy} r={12} fill={color} stroke="#020617" strokeWidth={2} />
-                            <text x={cx} y={cy} textAnchor="middle" dy={4} fill="#fff" fontSize={11} fontWeight="black">{letter}{appNumber}</text>
-                            <text x={cx} y={cy - 18} textAnchor="middle" fill={color} fontSize={10} fontWeight="bold">{isTermo ? 'Termonebulización' : 'Nebulización'}</text>
-                        </g>
-                    );
-                }
-                
-                if (dataKey === "PHMR_Sector" && payload.PHMR_Sector !== null) {
-                    return <circle cx={cx} cy={cy} r={6} fill="#f43f5e" stroke="#020617" strokeWidth={2} />;
-                }
-                return null;
-            };
-
-            const CustomTrendTooltip = ({ active, payload, label }) => {
-                if (active && payload && payload.length) {
-                    const data = payload[0].payload;
-                    return (
-                        <div className="bg-slate-900 border border-slate-700 p-3 rounded-xl shadow-2xl text-xs z-50 max-w-[200px] sm:max-w-none">
-                            <p className="text-white font-bold mb-2 border-b border-slate-700 pb-1 text-sm">{label}</p>
-                            {payload.map(entry => (
-                                entry.value !== null && entry.value !== undefined && (
-                                    <p key={entry.dataKey} style={{color: entry.color}} className="font-semibold my-1 text-sm">
-                                        {entry.name}: {entry.value}
-                                    </p>
-                                )
-                            ))}
-                            
-                            {data.hasAction && data.accionInfo && (
-                                <div className="mt-3 pt-2 border-t border-slate-700 bg-slate-800/80 p-2.5 rounded-lg border-l-4 border-l-cyan-400">
-                                    <p className="text-cyan-400 font-bold mb-1.5"><i className="fa-solid fa-truck-fast"></i> Acción Operativa</p>
-                                    <p className="text-slate-300"><b>Tipo:</b> {data.accionInfo.accion}</p>
-                                    <p className="text-slate-300"><b>Aplicación N°:</b> <span className="bg-slate-950 px-1.5 py-0.5 rounded border border-slate-700 text-white font-bold">{data.accionInfo.aplicacion}</span></p>
-                                </div>
-                            )}
-                        </div>
-                    );
-                }
-                return null;
-            };
 
             const descargarMapaImagen = async () => {
                 if (mapContainerRef.current) {
@@ -845,7 +825,9 @@
                         link.href = canvas.toDataURL("image/png");
                         link.download = `Mapa_Riesgo_Georreferenciado_SE${statsGlobales.semanaEpidemiologica}.png`;
                         link.click();
-                    } catch (err) { alert("Error al capturar el mapa. Intenta de nuevo."); }
+                    } catch (err) { 
+                        alert("No se pudo capturar la imagen. Algunos estilos de mapa (como Satélite o Calles) bloquean la descarga por derechos de autor. Cambia el mapa a 'Noche' o 'Día' e intenta de nuevo."); 
+                    }
                 }
             };
 
@@ -1168,7 +1150,7 @@
                         </div>
                     )}
 
-                    {/* VISTA 6: RADAR MAPA REAL (PUEDE SER FULLSCREEN) */}
+                    {/* VISTA 6: RADAR MAPA REAL */}
                     {activeTab === 'radar' && (
                         <div className={`flex flex-col xl:flex-row gap-4 sm:gap-6 animate-fade-in ${isFullscreen ? 'h-full w-full' : 'h-[calc(100vh-180px)] min-h-[600px] pb-8'}`}>
                         
@@ -1177,7 +1159,6 @@
                                 <h2 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2"><i className="fa-solid fa-earth-americas text-cyan-400"></i> Cartografía Táctica</h2>
                                 <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
                                     
-                                    {/* SELECTOR DE ESTILO DE MAPA */}
                                     <div className="flex items-center gap-2 bg-slate-950 p-1 rounded-lg border border-slate-700 shadow-md">
                                         <i className="fa-solid fa-layer-group text-slate-400 pl-2 text-xs"></i>
                                         <select value={mapStyle} onChange={(e) => setMapStyle(e.target.value)} className="bg-transparent text-white text-[10px] sm:text-xs font-bold outline-none cursor-pointer pr-2 py-1">
@@ -1188,7 +1169,6 @@
                                         </select>
                                     </div>
 
-                                    {/* FILTRO DE FOCOS ROJOS */}
                                     {mapViewMode === 'puntos' && (
                                         <div className="flex bg-slate-950 border border-slate-700 rounded-lg p-0.5 gap-0.5 shadow-md">
                                             <button onClick={() => setRiskFilter('Todos')} className={`px-2 sm:px-3 py-1.5 text-[10px] sm:text-xs font-bold rounded-md transition-all ${riskFilter==='Todos'?'bg-slate-800 text-white shadow-sm':'text-slate-400 hover:bg-slate-900'}`}>Global</button>
@@ -1216,12 +1196,9 @@
 
                             {mapViewMode === 'puntos' ? (
                                 <div ref={mapContainerRef} className="flex-1 w-full bg-slate-950 rounded-xl border border-slate-800 relative z-0 overflow-hidden shadow-inner">
-                                    
-                                    {/* LEYENDA DINÁMICA TIPO QGIS/ARCGIS */}
                                     <div className="absolute top-2 sm:top-4 right-2 sm:right-4 z-[400] bg-[#e5e5e5] text-slate-800 p-2 sm:p-2.5 rounded-lg shadow-xl pointer-events-none flex flex-col w-24 sm:w-32 border border-slate-300">
                                         <span className="text-[9px] sm:text-[11px] font-bold mb-1.5 sm:mb-2 text-center text-slate-700 leading-tight">Número de Huevos</span>
                                         <div className="flex h-24 sm:h-32 gap-2 sm:gap-3 items-center justify-center">
-                                            {/* Nuevo Gradiente Lineal Sincronizado con el Heatmap */}
                                             <div className="w-2.5 sm:w-3.5 h-full rounded shadow-inner" style={{ background: 'linear-gradient(to top, transparent 0%, #4a0082 20%, #c80064 40%, #ff0000 60%, #ff8c00 80%, #ffff88 100%)' }}></div>
                                             <div className="flex flex-col justify-between text-[9px] sm:text-[11px] font-bold h-full py-0 text-slate-600">
                                                 <span>{Math.round(maxHuevosSemana)}</span>
@@ -1233,7 +1210,6 @@
                                             </div>
                                         </div>
                                     </div>
-
                                     <MapaInteractivo data={mapDataWithSectorRisk} onMarkerClick={setSelectedHotspot} mapStyle={mapStyle} isFullscreen={isFullscreen} maxHuevos={maxHuevosSemana} sectorToFocus={sectorToFocus} />
                                 </div>
                             ) : (
@@ -1257,7 +1233,6 @@
                                                             <i className="fa-solid fa-location-crosshairs text-cyan-500 opacity-0 group-hover:opacity-100 transition-opacity absolute left-0"></i>
                                                             <div className="text-xs sm:text-base group-hover:pl-4 transition-all">{sector.nombre}</div>
                                                         </div>
-                                                        {/* TOP 3 MANZANAS DE ESTE SECTOR */}
                                                         <div className="mt-1 flex flex-wrap gap-1 sm:gap-1.5 group-hover:pl-4 transition-all">
                                                             <span className="text-[8px] sm:text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">Top:</span>
                                                             {sector.topManzanas && sector.topManzanas.map((tm, i) => (
@@ -1365,7 +1340,6 @@
         }
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        // Envolvemos el sistema completo con el escudo anti-colapsos
         root.render(
             <ErrorBoundary>
                 <CentroInteligenciaVectorial />
@@ -1374,3 +1348,4 @@
     </script>
 </body>
 </html>
+
